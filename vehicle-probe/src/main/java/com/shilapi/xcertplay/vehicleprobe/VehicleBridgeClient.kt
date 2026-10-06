@@ -46,6 +46,13 @@ class VehicleBridgeClient(context: Context) : Closeable {
     fun status(): Bundle = service().status
     /** Normalized category values; missing keys are unavailable, never silently replaced with zero. */
     fun readProperties(): Bundle = service().readProperties("")
+    /** carlito | A live consumer reads only its fields, without polling every configured property. */
+    fun readProperties(fields: Set<String>): Bundle {
+        val profile = activeProfile() ?: throw IllegalStateException("请先保存车型属性配置")
+        val bindings = profile.bindings.filter { it.field.name in fields }
+        if (bindings.isEmpty()) return Bundle().apply { putInt("schema", 1) }
+        return service().readProperties(VehiclePropertyProfiles.encode(profile.copy(bindings = bindings)))
+    }
     internal fun presets(): List<VehiclePropertyProfile> = service().let { api ->
         api.modelIds.map { VehiclePropertyProfiles.decode(api.getPreset(it)) }
     }

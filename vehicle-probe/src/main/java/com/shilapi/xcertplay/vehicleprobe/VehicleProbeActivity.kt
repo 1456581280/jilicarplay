@@ -385,6 +385,8 @@ class VehicleProbeActivity : Activity() {
         data class Inputs(val binding: VehiclePropertyBinding, val scale: EditText, val offset: EditText, val unit: EditText)
         val inputs = bindings.map { binding ->
             content.addView(label(binding.field.title, 18, true).apply { setPadding(0, dp(20), 0, dp(6)) })
+            if (binding.field == VehicleField.GEAR) content.addView(label(
+                "挡位编码确认是 0=P、1=R、2=N、3=D 时，单位可填 PRND 以辅助导航；未确认时保留原始值。", 14))
             content.addView(label("${binding.hexId} · ${binding.chain}/${binding.kind} · ${binding.area}", 13))
             fun input(title: String, value: String, numeric: Boolean): EditText {
                 content.addView(label(title, 14))

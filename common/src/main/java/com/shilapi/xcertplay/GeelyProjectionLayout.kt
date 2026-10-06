@@ -68,11 +68,21 @@ internal object GeelyProjectionLayout {
     }
 }
 
-internal data class ProjectionVehicleValue(val number: Double, val unit: String)
+internal data class ProjectionVehicleValue(val number: Double, val unit: String) {
+    fun metersPerSecond(): Double? {
+        val speed = when (unit.lowercase(Locale.ROOT).replace(" ", "")) {
+            "km/h", "kph", "kmh" -> number / 3.6
+            "m/s" -> number
+            else -> return null
+        }
+        return speed.takeIf { it.isFinite() && it in 0.0..(300.0 / 3.6) }
+    }
+}
 internal data class ProjectionVehicleFrame(
     val sampledAt: Long = 0L, val values: Map<String, ProjectionVehicleValue> = emptyMap(),
 ) {
-    fun value(field: ProjectionField): ProjectionVehicleValue? = values[field.property]
+    fun value(field: ProjectionField): ProjectionVehicleValue? = field.property?.let(::value)
+    fun value(name: String): ProjectionVehicleValue? = values[name]
         ?.takeIf { SystemClock.elapsedRealtime() - sampledAt in 0L..3_000L }
 }
 
@@ -156,8 +166,8 @@ internal class GeelyProjectionView(context: Context) : View(context) {
         val unit = value.unit.lowercase(Locale.ROOT).replace(" ", "")
         return when (field) {
             ProjectionField.SPEED -> {
-                val kph = when (unit) { "km/h", "kph", "kmh" -> value.number; "m/s" -> value.number * 3.6; else -> return "—" }
-                if (kph in 0.0..300.0) String.format(Locale.getDefault(), "%.0f km/h", kph) else "—"
+                val kph = value.metersPerSecond()?.times(3.6) ?: return "—"
+                String.format(Locale.getDefault(), "%.0f km/h", kph)
             }
             ProjectionField.RPM -> if (unit in setOf("rpm", "r/min", "转/分") && value.number in 0.0..15_000.0)
                 String.format(Locale.getDefault(), "%.0f rpm", value.number) else "—"

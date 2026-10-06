@@ -174,7 +174,8 @@ class CarPlayHostActivity : ComponentActivity() {
             locationInformationEnabled = locationReportingEnabled,
             vehicleStatusEnabled = com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphoneActive(this),
             chargingConnectors = com.shilapi.xcertplay.hud.BydOutputSettings.chargingConnectors(this),
-            vehicleSpeedEnabled = locationReportingEnabled && com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this),
+            vehicleSpeedEnabled = locationReportingEnabled && (BridgeVehicleSpeedSource.enabled(this) ||
+                com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this)),
         ),
         label = "DiPlay",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -3916,7 +3917,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 !config.locationReportingEnabled -> null
                 config.identification.vehicleSpeedEnabled -> VehicleSpeedLocationProvider(
                     AndroidCarPlayLocationProvider(this),
-                    com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
+                    if (BridgeVehicleSpeedSource.enabled(this)) BridgeVehicleSpeedSource(applicationContext)
+                    else com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
                 )
                 else -> AndroidCarPlayLocationProvider(this)
             }

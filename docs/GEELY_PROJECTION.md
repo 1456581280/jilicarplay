@@ -63,3 +63,11 @@
 ## 源码依据
 
 配置与手势入口为 `DiPlayActivity.kt`、`CarPlayHostActivity.kt`；布局和编辑器为 `GeelyProjectionLayout.kt`、`GeelyProjectionEditorActivity.kt`；数据读取为 `ProjectionVehicleReader.kt`；公开第二屏窗口、导航生命周期和诊断为 `GeelyHudProjection.kt`；产品提示位于 `projection.xml`。
+
+## Generic navigation motion input (carlito)
+
+- The optional vehicle-speed switch uses the public GD property client and the existing iAP2 location provider. Location reporting must also be enabled; settings apply on reconnection.
+- The editor, live projection and motion provider share one off-thread bridge reader per app process. It polls once per second and requests only projection/motion categories, rather than every configured vehicle property.
+- Speed must have a recognized km/h or m/s unit. Gear must explicitly use the normalized PRND contract (0=P, 1=R, 2=N, 3=D). Verified G636/FX11 presets now label their existing gear encoding accordingly. Unconfirmed reports retain raw units.
+- Unknown values, readings older than three seconds, and gear changes clear queued samples. Motion reads use fresh VHAL responses, direct ECARX calls or a bounded sensor cache; no missing gear is replaced with D.
+- This remains compile/source reviewed, not vehicle verified. One-second property polling is supplementary vehicle-speed input, not a claim of full inertial navigation support.

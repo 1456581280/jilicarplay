@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- carlito | Product language for the visual secondary-display editor. -->
 <resources>
+    <string name="bridge_motion_to_iphone">Vehicle speed for iPhone navigation</string>
+    <string name="bridge_motion_to_iphone_hint">Requires the vehicle data bridge and a calibrated vehicle profile. Enable location reporting too. Unavailable speed or gear is not sent. Applies when CarPlay reconnects.</string>
     <string name="projection_editor">HUD / instrument layout</string>
     <string name="projection_three_finger">Three-finger navigation projection</string>
     <string name="projection_three_finger_hint">Swipe up with three fingers in CarPlay to show or hide navigation on the selected screen. Swipe down to open settings.</string>

@@ -724,6 +724,11 @@ class DiPlayActivity : ComponentActivity() {
             }
         }
         section(content, getString(R.string.geely_vehicle), R.drawable.ic_dp_navigation) { card ->
+            toggle(card, getString(R.string.bridge_motion_to_iphone), getString(R.string.bridge_motion_to_iphone_hint),
+                BridgeVehicleSpeedSource.enabled(this)) {
+                BridgeVehicleSpeedSource.setEnabled(this, it)
+                if (CarPlayBackgroundSession.hasSession()) connect(AirPlayPersistence.loadWirelessEnabled(this))
+            }
             toggle(
                 card,
                 getString(R.string.geely_hud_navigation),
@@ -740,10 +745,9 @@ class DiPlayActivity : ComponentActivity() {
             } else {
                 val savedDisplayId = AirPlayPersistence.loadGeelyHudDisplayId(this)
                 val savedDisplayName = AirPlayPersistence.loadGeelyHudDisplayName(this)
-                val selectedDisplayIndex = hudDisplays.indexOfFirst {
-                    (it.id == savedDisplayId && (savedDisplayName == null || it.name == savedDisplayName)) ||
-                        it.name == savedDisplayName
-                }
+                val selectedDisplay = if (savedDisplayId < 0 && savedDisplayName == null) null
+                    else GeelyHudProjection.selectedDisplay(this)
+                val selectedDisplayIndex = hudDisplays.indexOfFirst { it == selectedDisplay }
                 val displayOptions = listOf(getString(R.string.geely_hud_projection_auto)) +
                     hudDisplays.map {
                         getString(

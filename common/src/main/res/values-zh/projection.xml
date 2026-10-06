@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- carlito | 投屏布局编辑器。 -->
 <resources>
+    <string name="bridge_motion_to_iphone">车辆车速辅助 iPhone 导航</string>
+    <string name="bridge_motion_to_iphone_hint">需安装车辆数据桥并保存已校准的车型配置，同时开启位置上报。车速或挡位不可用时不发送。重新连接 CarPlay 后生效。</string>
     <string name="projection_editor">HUD / 仪表布局</string>
     <string name="projection_three_finger">导航三指飞屏</string>
     <string name="projection_three_finger_hint">在 CarPlay 内三指上滑，可显示或收起选定屏幕上的导航；下滑仍打开设置。</string>
