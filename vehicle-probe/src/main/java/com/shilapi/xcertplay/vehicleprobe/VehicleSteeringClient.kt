@@ -53,7 +53,14 @@ class VehicleSteeringClient(context: Context, private val onEvent: (Bundle) -> U
             if (raw !in held && !event.getBoolean("intercepted")) return
             if (event.getBoolean("intercepted")) state = Bundle(status).apply {
                 putIntArray("interceptedRawKeys", (held + raw).distinct().toIntArray())
-                putIntArray("interceptedKeys", ((getIntArray("interceptedKeys") ?: intArrayOf()) + key).distinct().toIntArray())
+                val confirmed = ((getIntArray("interceptedKeys") ?: intArrayOf()) + key).distinct().toIntArray()
+                putIntArray("interceptedKeys", confirmed)
+                val pending = current.keys.filter { it !in confirmed }.toIntArray()
+                putIntArray("unconfirmedKeys", pending)
+                if (status.getString("stage") != "RELEASE_REJECTED") {
+                    putString("stage", if (pending.isEmpty()) "ACTIVE" else "PARTIAL_INTERCEPTION")
+                    putBoolean("ready", true)
+                }
             }
         }
         onEvent(Bundle(event))
