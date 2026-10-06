@@ -1361,7 +1361,10 @@ class CarPlayController(
                     onChange = { addresses ->
                         synchronized(wirelessResourceLock) {
                             if (!isStaleWirelessRun(generation)) {
-                                val bound = service.updateWirelessAddresses(watchdog.listener, addresses)
+                                val candidates = if (hotspotInfo.restrictToPrimaryAddress)
+                                    addresses.filter { com.shilapi.xcertplay.network.networkAddressKey(it) ==
+                                        com.shilapi.xcertplay.network.networkAddressKey(hostAddress) } else addresses
+                                val bound = service.updateWirelessAddresses(watchdog.listener, candidates)
                                 bonjourClient.updateAddresses(bound)
                                 debugLog("LOCAL_NETWORK coverage candidates=${addresses.size} listeners=${bound.size} port=$listenerPort")
                             }
@@ -1439,13 +1442,20 @@ class CarPlayController(
                 Iap2WirelessLinkRole.RUNTIME_TUNNEL,
                 wirelessIdentification,
             )
+            val boundEndpointKeys = service.boundWirelessAddresses(watchdog.listener)
+                .map { com.shilapi.xcertplay.network.networkAddressKey(it) }.toSet()
+            if (com.shilapi.xcertplay.network.networkAddressKey(hostAddress) !in boundEndpointKeys)
+                throw IOException("Primary hotspot listener is unavailable")
             val endpoint = Iap2WirelessCarPlayEndpoint(
                 ssid = hotspotInfo.ssid,
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                // carlito: Publish every address served by discovery and the AirPlay listeners.
-                ipAddresses = (listOf(hostAddress) + hotspotInfo.hostAddresses).distinct().map(::hostAddressText),
+                // carlito | Primary first; never advertise an optional address whose listener failed.
+                ipAddresses = (listOf(hostAddress) + hotspotInfo.hostAddresses).distinctBy {
+                    com.shilapi.xcertplay.network.networkAddressKey(it)
+                }.filter { com.shilapi.xcertplay.network.networkAddressKey(it) in boundEndpointKeys }
+                    .map(::hostAddressText),
                 airPlayPort = listenerPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
@@ -2163,7 +2173,8 @@ class CarPlayController(
         val hotspotMode = config.wirelessHotspotMode
         if (com.shilapi.xcertplay.network.CarHotspotSettings.shouldEnable(
                 appContext, config.transport == CarPlayTransport.WIRELESS, hotspotMode,
-            )
+            ) && !(hotspotMode == WirelessHotspotMode.MANUAL &&
+                com.shilapi.xcertplay.network.GeelyKx11NetworkPolicy.hasRoutedInterface())
         ) {
             val result = com.shilapi.xcertplay.network.CarHotspotTethering.enable(
                 appContext,

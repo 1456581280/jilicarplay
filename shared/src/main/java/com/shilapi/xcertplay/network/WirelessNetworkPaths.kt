@@ -64,6 +64,10 @@ internal object WirelessNetworkPaths {
     fun bindSocket(context: Context, socket: Socket, source: InetAddress) {
         val manager = context.getSystemService(ConnectivityManager::class.java) ?: return
         val name = NetworkInterface.getByInetAddress(source)?.name ?: return
+        // carlito | The KX11 factory gateway is reached by its explicit local address, not
+        // Android's default Network. This exception never changes process/USB routing.
+        if (GeelyKx11NetworkPolicy.supported() &&
+            GeelyKx11NetworkPolicy.routedAddress(name, listOf(source)) != null) return
         // carlito: Bind only this probe; never change the process's USB/cloud/default routing.
         manager.allNetworks.firstOrNull { manager.getLinkProperties(it)?.interfaceName == name &&
             manager.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false }

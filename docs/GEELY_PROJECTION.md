@@ -71,3 +71,4 @@
 - Speed must have a recognized km/h or m/s unit. Gear must explicitly use the normalized PRND contract (0=P, 1=R, 2=N, 3=D). Verified G636/FX11 presets now label their existing gear encoding accordingly. Unconfirmed reports retain raw units.
 - Unknown values, readings older than three seconds, and gear changes clear queued samples. Motion reads use fresh VHAL responses, direct ECARX calls or a bounded sensor cache; no missing gear is replaced with D.
 - This remains compile/source reviewed, not vehicle verified. One-second property polling is supplementary vehicle-speed input, not a claim of full inertial navigation support.
+The bridge motion switch takes priority if both bridge and BYD speed sources are enabled; its default is off and it does not silently fall back to a different vehicle source.

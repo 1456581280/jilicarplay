@@ -29,6 +29,8 @@ class WirelessHotspotInfo(
     val accessPointBssid: ByteArray? = null,
     /** carlito: Candidate listeners/discovery may cover more links than the bootstrap address. */
     val listenerAddresses: List<InetAddress> = hostAddresses,
+    /** carlito | A factory-routed gateway may expose only its primary receiver endpoint. */
+    val restrictToPrimaryAddress: Boolean = false,
 ) {
     override fun toString(): String =
         "WirelessHotspotInfo(backend=${backend.label}, ssid='$ssid', " +

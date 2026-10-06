@@ -98,6 +98,19 @@ class ManualHotspotManager(
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
             log = {},
         ).await(timeoutMillis)
+        // carlito | Factory-routed KX11 hotspots do not share Android's SoftAP configuration.
+        // Keep proven AP/client-route candidates above this model-specific fallback.
+        if (selected.kx11Routed) {
+            val activeSsid = expectedSsid ?: throw WirelessStartupException(
+                WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Configure the car hotspot credentials first")
+            confirmed = selected
+            onDiagnostic("LOCAL_NETWORK compatibility=geely_kx11_routed_hotspot iface=${selected.name} " +
+                "primary=${selected.address.hostAddress} channel=unknown credentials=saved")
+            return WirelessHotspotInfo(activeSsid, passphrase, expectedSecurity, 0, null, null,
+                selected.name, selected.address, "Auto", WirelessHotspotBackend.MANUAL_HOTSPOT,
+                hostAddresses = listOf(selected.address), listenerAddresses = listOf(selected.address),
+                restrictToPrimaryAddress = true)
+        }
         // The vendor service may bind asynchronously; read its configuration after readiness.
         val vendorState = interfaces.vendorSnapshot()
         val apConfiguration = readApConfiguration()?.takeUnless {

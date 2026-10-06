@@ -55,6 +55,7 @@ internal class ManualHotspotInterfaces(
             apEnabled = if (vendorState.enabled == true) true else androidEnabled,
             hotspotConfirmed = androidEnabled == true || vendorState.enabled == true,
             vendorHostAddresses = vendorState.routedHosts,
+            kx11RoutedHotspot = GeelyKx11NetworkPolicy.supported(),
         )
     }
 

@@ -17,13 +17,15 @@ object CarHotspotStatus {
 
     /**
      * True/false from the Wi-Fi AP state, or null when the firmware hides it (then callers must
-     * not block the connection). Interface flags are not used: BYD keeps wlan1 up with an address
-     * while tethering is off.
+     * not block the connection). Generic interface flags do not prove a hotspot is on: BYD
+     * keeps wlan1 up while tethering is off. A verified KX11 factory gateway only makes the
+     * Android state unknown; the connection still has to pass interface readiness and handshake.
      */
     fun isEnabled(context: Context): Boolean? {
         val enabled = androidEnabled(context)
         // The standard Wi-Fi service cannot rule out a separately managed ECARX AP.
-        return enabled.takeUnless { it == false && EcarxHotspotReader.available(context) }
+        return enabled.takeUnless { it == false && (EcarxHotspotReader.available(context) ||
+            GeelyKx11NetworkPolicy.hasRoutedInterface()) }
     }
 
     internal fun androidEnabled(context: Context): Boolean? {

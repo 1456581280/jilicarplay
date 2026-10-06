@@ -22,16 +22,18 @@ internal data class HotspotNetworkSnapshot(
     val apEnabled: Boolean? = true,
     val hotspotConfirmed: Boolean = false,
     val vendorHostAddresses: Map<String, InetAddress> = emptyMap(),
+    val kx11RoutedHotspot: Boolean = false,
 )
 
-internal data class HotspotSelection(val name: String, val index: Int, val address: InetAddress) {
+internal data class HotspotSelection(val name: String, val index: Int, val address: InetAddress,
+    val kx11Routed: Boolean = false) {
     fun sameAddress(other: HotspotSelection): Boolean = name == other.name && index == other.index &&
         address.address.contentEquals(other.address.address) &&
-        (address as? Inet6Address)?.scopeId == (other.address as? Inet6Address)?.scopeId
+        (address as? Inet6Address)?.scopeId == (other.address as? Inet6Address)?.scopeId && kx11Routed == other.kx11Routed
 }
 
 internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (String) -> Unit): HotspotSelection? {
-    if (!snapshot.consistent || snapshot.apEnabled == false) {
+    if (!snapshot.consistent) {
         log("hotspot sample rejected: network_changed=${!snapshot.consistent} apEnabled=${snapshot.apEnabled}")
         return null
     }
@@ -41,13 +43,20 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
         val vendorAddress = snapshot.vendorHostAddresses[iface.name]?.takeIf { host ->
             iface.addresses.any { it.address.contentEquals(host.address) }
         }
+        val routed = if (snapshot.kx11RoutedHotspot)
+            GeelyKx11NetworkPolicy.routedAddress(iface.name, iface.addresses) else null
+        val conventional = manualHotspotHostAddresses(iface.addresses, iface.index).firstOrNull()
+        val conventionalConfirmed = snapshot.apEnabled != false && (owned ||
+            snapshot.hotspotConfirmed && conventional is Inet4Address && conventional.isSiteLocalAddress && !upstream)
         // carlito: Preserve a proven client route; otherwise prefer the AP's IPv4 address.
-        val address = vendorAddress ?: manualHotspotHostAddresses(iface.addresses, iface.index).firstOrNull()
+        val address = vendorAddress ?: if (conventionalConfirmed) conventional ?: routed else routed ?: conventional
         val reason = when {
             !iface.up || iface.index <= 0 -> "interface_down"
             address == null -> "address_unavailable"
+            snapshot.apEnabled == false && routed == null -> "android_ap_off"
             vendorAddress != null -> "ecarx_client_route"
-            owned -> "platform_ap"
+            owned && snapshot.apEnabled != false && address != routed -> "platform_ap"
+            routed != null && address == routed -> "kx11_routed_hotspot"
             snapshot.hotspotConfirmed && address is Inet4Address && address.isSiteLocalAddress &&
                 !Regex("^(rmnet|ccmni|pdp|wwan|tun|tap|dummy|veth).*", RegexOption.IGNORE_CASE)
                     .matches(iface.name) && !upstream ->
@@ -73,9 +82,10 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
             "state_confirmed_wireless_ap" -> 90
             "local_car_network_candidate" -> if (snapshot.defaultInterface == iface.name) 5 else if (iface.wireless) 90 else 20
             "wireless_non_upstream" -> 0
+            "kx11_routed_hotspot" -> if (iface.name.equals("eth0", ignoreCase = true)) 2 else 1
             else -> return@mapNotNull null
         }
-        priority to HotspotSelection(iface.name, iface.index, address!!)
+        priority to HotspotSelection(iface.name, iface.index, address!!, reason == "kx11_routed_hotspot")
     }.sortedWith(compareByDescending<Pair<Int, HotspotSelection>> { it.first }.thenBy { it.second.name })
         .firstOrNull()?.second
 }
