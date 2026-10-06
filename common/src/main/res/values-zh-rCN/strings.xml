@@ -611,7 +611,7 @@
     <string name="geely_hud_content_size">HUD 内容大小</string>
     <string name="geely_hud_content_size_option">%1$d%%</string>
     <string name="geely_steering_wheel">按键兼容模式</string>
-    <string name="geely_steering_wheel_description">按键识别无法使用时，可尝试此模式来控制播放和打开 Siri。</string>
+    <string name="geely_steering_wheel_description">安装车辆数据桥后，可用方向盘按键控制播放和打开 Siri。</string>
     <string name="steering_identification">按键识别</string>
     <string name="steering_panel_intro">选择要设置的功能，按下对应的方向盘按钮。识别结果会自动填入，保存后生效并上传云端。</string>
     <string name="steering_car_model">车型</string>

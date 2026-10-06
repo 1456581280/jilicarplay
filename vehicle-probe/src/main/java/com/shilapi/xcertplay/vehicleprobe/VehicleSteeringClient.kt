@@ -128,7 +128,11 @@ class VehicleSteeringClient(context: Context, private val onEvent: (Bundle) -> U
         } catch (error: Exception) {
             runCatching { remote?.unregisterSteeringListener(callback) }
             if (error is android.os.RemoteException) disconnect()
-            publishFailure(if (error is SecurityException) "CLIENT_NOT_AUTHORIZED" else "BRIDGE_ERROR", error)
+            publishFailure(when (error) {
+                is android.content.pm.PackageManager.NameNotFoundException -> "BRIDGE_NOT_INSTALLED"
+                is SecurityException -> "CLIENT_NOT_AUTHORIZED"
+                else -> "BRIDGE_ERROR"
+            }, error)
         }
     }
 

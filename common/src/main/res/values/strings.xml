@@ -611,7 +611,7 @@
     <string name="geely_hud_content_size">HUD content size</string>
     <string name="geely_hud_content_size_option">%1$d%%</string>
     <string name="geely_steering_wheel">Steering-button compatibility mode</string>
-    <string name="geely_steering_wheel_description">If button identification is unavailable, try this mode to control playback and open Siri.</string>
+    <string name="geely_steering_wheel_description">Install Vehicle Data Bridge to use steering wheel buttons for playback and Siri.</string>
     <string name="steering_identification">Identify steering buttons</string>
     <string name="steering_panel_intro">Choose an action and press its steering button. The result fills in automatically. Save to apply it and upload the configuration to cloud.</string>
     <string name="steering_car_model">Vehicle model</string>
