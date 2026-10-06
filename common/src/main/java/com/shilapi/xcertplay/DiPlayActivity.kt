@@ -1021,6 +1021,11 @@ class DiPlayActivity : ComponentActivity() {
             if (SteeringProfiles.developerUnlocked(this)) card.addView(button(getString(R.string.steering_diagnostics), false) {
                 startActivity(Intent(this, SteeringControlsActivity::class.java).putExtra("developer", true))
             }, matchButton(10, 56))
+            // carlito | Private entry for the GD vehicle probe integration.
+            if (SteeringProfiles.developerUnlocked(this)) card.addView(button(getString(R.string.vehicle_probe), false) {
+                startActivity(Intent(this, com.shilapi.xcertplay.vehicleprobe.VehicleProbeActivity::class.java)
+                    .putExtra("developer", true))
+            }, matchButton(10, 56))
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))

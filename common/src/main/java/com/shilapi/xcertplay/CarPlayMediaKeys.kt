@@ -22,6 +22,7 @@ import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay
+import com.shilapi.xcertplay.vehicleprobe.VehicleSteeringClient
 import java.util.concurrent.Executors
 import java.util.concurrent.Executor
 
@@ -56,6 +57,9 @@ internal object CarPlayMediaKeys {
     private var manageAudioFocus = true
     private var appContext: Context? = null
     private var geelyInput: GeelySteeringWheelInputChannel? = null
+    // carlito | Prefer the standalone bridge. OneOS stays private in its APK.
+    private var bridgeInput: VehicleSteeringClient? = null
+    @Volatile private var steeringGeneration = 0
     private var keyLogMonitor: SteeringKeyLogMonitor? = null
     private var lastGeelyInputDiagnostics = "oneOs INACTIVE"
     private var lastKeyLogDiagnostics = "logMonitor INACTIVE"
@@ -172,36 +176,59 @@ internal object CarPlayMediaKeys {
     }
 
     private fun syncGeelyInputLocked() {
-        val profileUsesOneOs = steeringProfile?.bindings?.any { it.source == "oneos" } == true
+        val profileUsesOneOs = steeringProfile?.bindings?.any { it.isVendorInput } == true
         val useGeelyInput = learning != null || controller != null &&
             (profileUsesOneOs || steeringProfile == null &&
                 appContext?.let(AirPlayPersistence::loadGeelySteeringEnabled) == true)
         if (!useGeelyInput) {
+            steeringGeneration++
+            bridgeInput?.let { lastGeelyInputDiagnostics = it.diagnostics(); it.close() }
+            bridgeInput = null
             geelyInput?.let { lastGeelyInputDiagnostics = it.diagnostics(); it.close() }
             geelyInput = null
+        } else if (VehicleSteeringClient.installed(appContext!!)) {
+            geelyInput?.close(); geelyInput = null
+            if (bridgeInput == null) {
+                val generation = ++steeringGeneration
+                bridgeInput = VehicleSteeringClient(appContext!!) { event ->
+                    onGeelySteeringKey(GeelySteeringKeyEvent(event.getInt("keyCode"), event.getInt("rawKeyCode"),
+                        event.getInt("action"), event.getLong("eventTimeMs")), generation, source = "vehicle_bridge")
+                }
+            }
+            val mapped = steeringProfile?.bindings?.filter { it.isVendorInput }
+                ?.map { GeelySteeringKeyCodes.canonicalize(it.keyCode) ?: it.keyCode }?.toIntArray()
+                ?: intArrayOf(200085, 200087, 200088, 200231, 210005, 210006)
+            // Learning is a passive observation; playback only uses acknowledged interception.
+            bridgeInput?.update(if (learning != null) intArrayOf() else mapped, intercept = learning == null)
         } else if (geelyInput == null) {
-            geelyInput = GeelySteeringWheelInputChannel(appContext!!, ::onGeelySteeringKey).also {
+            bridgeInput?.close(); bridgeInput = null
+            val generation = ++steeringGeneration
+            geelyInput = GeelySteeringWheelInputChannel(appContext!!) { event ->
+                onGeelySteeringKey(event, generation)
+            }.also {
                 it.setEnabled(true)
             }
         }
         keyLogMonitor?.let { lastKeyLogDiagnostics = it.diagnostics(); it.close() }; keyLogMonitor = null
         val generation = ++monitorGeneration
-        val inputBindings = steeringProfile?.bindings?.filterNot { it.source == "oneos" } ?: if (!useGeelyInput && appContext?.let(GeelyFactoryCarPlay::load) != null) {
+        val inputBindings = steeringProfile?.bindings?.filterNot { it.isVendorInput } ?: if (!useGeelyInput && appContext?.let(GeelyFactoryCarPlay::load) != null) {
             // HardKeyModel in the factory APK logs this press even without a connected iPhone.
             listOf(SteeringBinding("siri", 200231, 0, "logcat", "HardKeyModel"))
         } else emptyList()
         val needsSystemInput = learning != null || (controller != null && inputBindings.isNotEmpty())
-        if (needsSystemInput && appContext != null) {
+        if (needsSystemInput && appContext != null && (bridgeInput == null || learning == null)) {
             keyLogMonitor = SteeringKeyLogMonitor(appContext!!, inputBindings, learning != null) { key ->
                 mainHandler.post { if (generation == monitorGeneration) onObservedKey(key) }
             }.also { it.start() }
         }
     }
 
-    private fun onGeelySteeringKey(event: GeelySteeringKeyEvent) {
+    private fun onGeelySteeringKey(event: GeelySteeringKeyEvent, generation: Int = steeringGeneration,
+        source: String = "oneos") {
         mainHandler.post {
-            if (learning != null || steeringProfile?.bindings?.any { it.source == "oneos" } == true) {
-                onObservedKey(SteeringObservedKey(event.keyCode, event.action, "oneos"))
+            if (generation != steeringGeneration) return@post
+            if (learning != null || steeringProfile?.bindings?.any { it.isVendorInput } == true) {
+                onObservedKey(SteeringObservedKey(event.keyCode, event.action, source))
                 return@post
             }
             if (steeringProfile != null) return@post
@@ -214,7 +241,7 @@ internal object CarPlayMediaKeys {
             }
             if (steeringProfile?.bindings?.any { it.operation == operation } == true) return@post
             val trigger = if (operation == "siri") event.action in 1..4 else event.action == 0 || event.action == 2
-            if (trigger) sendSteeringOperation(operation, "oneos")
+            if (trigger) sendSteeringOperation(operation, source)
         }
     }
 
@@ -252,10 +279,11 @@ internal object CarPlayMediaKeys {
         val permitted = appContext?.checkSelfPermission(android.Manifest.permission.READ_LOGS) == android.content.pm.PackageManager.PERMISSION_GRANTED
         "systemLogAccess=$permitted\n" + SteeringLogAccess.diagnostics() + "\n" +
             (geelyInput?.diagnostics() ?: "last: $lastGeelyInputDiagnostics") + "\n" +
+            (bridgeInput?.diagnostics() ?: "vehicleBridge INACTIVE") + "\n" +
             (keyLogMonitor?.diagnostics() ?: "last: $lastKeyLogDiagnostics") + "\n" + observedKeys.joinToString("\n")
     }
 
-    fun steeringDirectReady(): Boolean = synchronized(this) { geelyInput?.ready() == true }
+    fun steeringDirectReady(): Boolean = synchronized(this) { bridgeInput?.ready() == true || geelyInput?.ready() == true }
 
     private fun onObservedKey(key: SteeringObservedKey) {
         val learner = synchronized(this) {
@@ -264,10 +292,16 @@ internal object CarPlayMediaKeys {
             learning?.onKey
         }
         if (learner != null) { learner(key); return }
+        // carlito | A bridge-owned key can also be logged/broadcast by the stock dispatcher.
+        if (key.source !in listOf("oneos", "ecarx", "vehicle_bridge") && bridgeInput?.ownsCanonicalKey(
+                GeelySteeringKeyCodes.canonicalize(key.keyCode) ?: key.keyCode) == true) return
         if (SystemClock.elapsedRealtime() < suppressedUntil) return
         val profile = synchronized(this) { steeringProfile }
         val binding = profile?.bindings?.firstOrNull {
-            it.keyCode == key.keyCode && it.source == key.source &&
+            (it.keyCode == key.keyCode || it.isVendorInput &&
+                GeelySteeringKeyCodes.canonicalize(it.keyCode)?.let { code ->
+                    code == GeelySteeringKeyCodes.canonicalize(key.keyCode) } == true) &&
+                (it.source == key.source || it.isVendorInput && key.source in listOf("oneos", "ecarx", "vehicle_bridge")) &&
                 (key.source != "logcat" || it.logTag == key.logTag) &&
                 it.logContains == key.logContains &&
                 (key.source != "broadcast" || (it.broadcastAction == key.broadcastAction && it.keyExtra == key.keyExtra && it.eventExtra == key.eventExtra))
@@ -299,6 +333,8 @@ internal object CarPlayMediaKeys {
     fun consumesHardwareKey(keyCode: Int): Boolean = synchronized(this) {
         val standard = CarPlayMediaButton.forKeyCode(keyCode) != null || CarPlayMediaButton.opensSiri(keyCode)
         ((learning != null || SystemClock.elapsedRealtime() < suppressedUntil) && standard) ||
+            bridgeInput?.ownsRawKey(keyCode) == true ||
+            bridgeInput?.ownsCanonicalKey(GeelySteeringKeyCodes.canonicalize(keyCode) ?: keyCode) == true ||
             steeringProfile?.bindings?.any { it.keyCode > 0 && it.keyCode == keyCode } == true
     }
 
@@ -360,6 +396,9 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
+        steeringGeneration++
+        bridgeInput?.close()
+        bridgeInput = null
         geelyInput?.close()
         geelyInput = null
         keyLogMonitor?.close()
@@ -405,7 +444,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun send(index: Int, source: String) {
-        val group = if (source in listOf("oneos", "logcat", "broadcast")) source else "media_session"
+        val group = if (source in listOf("oneos", "ecarx", "vehicle_bridge", "logcat", "broadcast")) source else "media_session"
         val now = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (learning != null || now < suppressedUntil) return

@@ -771,4 +771,6 @@
     <string name="car_button_description">CarPlay shows this icon and name in its app list. Tap it to return to the car\'s own screen. Changes apply the next time CarPlay connects.</string>
     <string name="car_button_saved_next_connection">Saved. CarPlay shows the new icon and name the next time it connects.</string>
     <string name="this_head_unit_has_no_image_picker">This head unit has no image picker.</string>
+    <!-- carlito | GD vehicle probe integration. -->
+    <string name="vehicle_probe">Vehicle scan</string>
 </resources>
