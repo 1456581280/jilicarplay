@@ -58,6 +58,9 @@ class GeelyProjectionEditorActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         buildPanel()
+        savedInstanceState?.getStringArrayList("geometry_input")?.takeIf { it.size == fields.size }?.let { values ->
+            fields.forEachIndexed { index, input -> if (input.isEnabled) input.setText(values[index]) }
+        }
     }
     override fun onStart() {
         super.onStart()
@@ -72,6 +75,8 @@ class GeelyProjectionEditorActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         readGeometry(showErrors = false)
         outState.putString("draft", GeelyProjectionLayout.encode(draft)); outState.putString("selected", selected.name)
+        // carlito | Keep incomplete/temporarily invalid input without accepting it as a saved layout.
+        outState.putStringArrayList("geometry_input", ArrayList(fields.map { it.text.toString() }))
         super.onSaveInstanceState(outState)
     }
 
@@ -88,9 +93,7 @@ class GeelyProjectionEditorActivity : ComponentActivity() {
         header.addView(button(R.string.back) { finish() })
         content.addView(header)
         content.addView(label(R.string.projection_editor_hint, 16f, MUTED), params(12))
-        val screen = GeelyHudProjection.availableDisplays(this).firstOrNull {
-            it.id == AirPlayPersistence.loadGeelyHudDisplayId(this) || it.name == AirPlayPersistence.loadGeelyHudDisplayName(this)
-        } ?: GeelyHudProjection.availableDisplays(this).filter { it.name.contains("hud", true) }.singleOrNull()
+        val screen = GeelyHudProjection.selectedDisplay(this)
         preview = GeelyProjectionView(this).apply {
             editing = true; elements = draft; selected = this@GeelyProjectionEditorActivity.selected
             guidance = GeelyHudProjection.currentGuidance()

@@ -137,6 +137,17 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         mainHandler.post(::refresh)
     }
 
+    // carlito | The editor, gesture and live window must agree on exactly the same display.
+    fun selectedDisplay(context: Context): GeelyHudDisplay? {
+        val displays = availableDisplays(context)
+        val id = AirPlayPersistence.loadGeelyHudDisplayId(context)
+        val name = AirPlayPersistence.loadGeelyHudDisplayName(context)
+        return if (id != Display.INVALID_DISPLAY || name != null) {
+            displays.firstOrNull { it.id == id && (name == null || it.name == name) }
+                ?: name?.let { value -> displays.filter { it.name == value }.singleOrNull() }
+        } else displays.filter { it.name.contains("hud", true) }.singleOrNull()
+    }
+
     fun setScale(context: Context, percent: Int) {
         AirPlayPersistence.saveGeelyHudScalePercent(context, percent)
         mainHandler.post {
@@ -160,20 +171,14 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
     fun flyNavigation(activity: Activity): Int {
         if (guidance == null) return com.shilapi.xcertplay.host.R.string.projection_no_guidance
         if (!Settings.canDrawOverlays(activity)) return com.shilapi.xcertplay.host.R.string.projection_permission_required
-        val displays = availableDisplays(activity)
-        val id = AirPlayPersistence.loadGeelyHudDisplayId(activity)
-        val name = AirPlayPersistence.loadGeelyHudDisplayName(activity)
-        val selected = if (id != Display.INVALID_DISPLAY || name != null) {
-            displays.firstOrNull { it.id == id && (name == null || it.name == name) }
-                ?: name?.let { value -> displays.filter { it.name == value }.singleOrNull() }
-        } else displays.filter { it.name.contains("hud", true) }.singleOrNull()
+        val selected = selectedDisplay(activity)
         if (selected == null) return com.shilapi.xcertplay.host.R.string.projection_select_display
         if (GeelyProjectionLayout.load(activity).none { it.field == ProjectionField.NAVIGATION && it.visible })
             return com.shilapi.xcertplay.host.R.string.projection_add_navigation
         navigationHidden = AirPlayPersistence.loadGeelyHudEnabled(activity) && !navigationHidden
         if (!navigationHidden) AirPlayPersistence.saveGeelyHudEnabled(activity, true)
         refresh()
-        return if (windowStage.startsWith("WINDOW_REJECTED")) com.shilapi.xcertplay.host.R.string.projection_open_failed
+        return if (!navigationHidden && hudView == null) com.shilapi.xcertplay.host.R.string.projection_open_failed
             else if (navigationHidden) com.shilapi.xcertplay.host.R.string.projection_navigation_hidden
             else com.shilapi.xcertplay.host.R.string.projection_navigation_shown
     }
@@ -227,18 +232,9 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
             detachWindow()
             return
         }
-        val displays = displayManager?.displays
-            ?.filter { it.displayId != Display.DEFAULT_DISPLAY && it.state != Display.STATE_OFF }
-            .orEmpty()
-        val savedId = AirPlayPersistence.loadGeelyHudDisplayId(activity)
-        val savedName = AirPlayPersistence.loadGeelyHudDisplayName(activity)
-        val display = if (savedId != Display.INVALID_DISPLAY || savedName != null) {
-            displays.firstOrNull { it.displayId == savedId && (savedName == null || it.name == savedName) }
-                ?: savedName?.let { name -> displays.filter { it.name == name }.singleOrNull() }
-        } else {
-            // carlito | Ambiguous/rear/cluster screens require an explicit user selection.
-            displays.filter { it.name.contains("hud", ignoreCase = true) }.singleOrNull()
-        }
+        val selected = selectedDisplay(activity)
+        val display = selected?.let { choice -> displayManager?.getDisplay(choice.id)
+            ?.takeIf { it.name == choice.name && it.state != Display.STATE_OFF } }
         if (display == null) {
             windowStage = "DISPLAY_SELECTION_REQUIRED"
             detachWindow()
