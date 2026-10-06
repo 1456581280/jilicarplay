@@ -230,6 +230,8 @@ class CarPlayController(
     private var clusterUiShown = true
     // Immutable snapshots keep accessibility key filtering away from the network-writing UI lock.
     @Volatile private var clusterUiVisibility: Pair<Pair<AirPlaySession, Int>, Boolean>? = null
+    // carlito | A vehicle projection owner supersedes the optional BYD dashboard pause policy.
+    @Volatile private var projectionUiOwner: Any? = null
     @Volatile private var dashboardMapOutputVisible = false
     private val dashboardMapEpoch = AtomicInteger()
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
@@ -549,6 +551,13 @@ class CarPlayController(
     /** Immutable stream geometry retained when a new host adopts this background controller. */
     fun configuredClusterSize(): Pair<Int, Int>? = airPlayConfig.cluster?.let { it.widthPixels to it.heightPixels }
 
+    /** carlito | Phone and active cluster stream identity, including when its map is hidden. */
+    fun clusterProjectionSessionToken(): Any? {
+        if (closed) return null
+        val session = activeSession ?: return null
+        return session.clusterStream.takeIf { it > 0 }?.let { session to it }
+    }
+
     /** A visible physical map and its session/stream generation; null for a paused/virtual/turn-card route. */
     fun dashboardMapRoute(): Any? {
         val session = activeSession ?: return null
@@ -566,12 +575,13 @@ class CarPlayController(
     fun dashboardMapStreaming(): Boolean = dashboardMapRoute() != null
 
     /** One zoom step for the dashboard map, as the car's own zoom controls send it. */
-    fun zoomDashboardMap(zoomIn: Boolean): Boolean {
+    @JvmOverloads
+    fun zoomDashboardMap(zoomIn: Boolean, permitted: () -> Boolean = { true }): Boolean {
         val route = dashboardMapRoute() ?: return false
         val session = activeSession ?: return false
         return try {
             touchExecutor.execute {
-                if (activeSession === session && dashboardMapRoute() == route) session.changeMapZoomLevel(zoomIn)
+                if (activeSession === session && dashboardMapRoute() == route && permitted()) session.changeMapZoomLevel(zoomIn)
             }
             true
         } catch (_: Exception) {
@@ -763,6 +773,7 @@ class CarPlayController(
 
     // Each new cluster stream starts with the map drawn (its initialURL); send only real changes.
     private fun applyClusterUi(shown: Boolean) = synchronized(clusterUiLock) {
+        if (projectionUiOwner != null) return@synchronized
         val session = activeSession ?: return@synchronized
         val stream = session.clusterStream.takeIf { it > 0 } ?: return@synchronized
         if (clusterUiStream != session to stream) {
@@ -777,6 +788,36 @@ class CarPlayController(
             dashboardMapEpoch.incrementAndGet()
             debugLog("Cluster map: ${if (shown) "showUI, the cluster shows the map" else "stopUI, the cluster hides the map"}")
         }
+    }
+
+    /** carlito | Sends map visibility off the UI thread and rejects a replaced phone/owner. */
+    fun setProjectionUiShown(owner: Any, shown: Boolean, onComplete: (Boolean) -> Unit) {
+        synchronized(clusterUiLock) { projectionUiOwner = owner }
+        val session = activeSession
+        if (closed || session == null || session.clusterStream <= 0) { onComplete(false); return }
+        val stream = session.clusterStream
+        try {
+            touchExecutor.execute {
+                val sent = synchronized(clusterUiLock) {
+                    if (closed || projectionUiOwner !== owner || activeSession !== session || session.clusterStream != stream) false
+                    else session.setClusterUiShown(shown).also { accepted -> if (accepted) {
+                        clusterUiStream = session to stream; clusterUiShown = shown
+                        clusterUiVisibility = (session to stream) to shown
+                        dashboardMapEpoch.incrementAndGet()
+                    } }
+                }
+                onComplete(sent)
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) { onComplete(false) }
+    }
+
+    fun releaseProjectionUi(owner: Any) {
+        // carlito | Finish a previously queued stopUI before dropping the owner's permission.
+        val release = { synchronized(clusterUiLock) {
+            if (projectionUiOwner === owner) projectionUiOwner = null
+        } }
+        try { touchExecutor.execute(release) }
+        catch (_: java.util.concurrent.RejectedExecutionException) { release() }
     }
 
     /** Waits for USB, iAP2, MFi and VPN teardown; intended for a non-main lifecycle thread. */

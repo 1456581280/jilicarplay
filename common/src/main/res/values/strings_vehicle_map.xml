@@ -1,0 +1,30 @@
+<resources>
+    <string name="vehicle_audio_media">Media</string>
+    <string name="vehicle_audio_navigation">Navigation</string>
+    <string name="vehicle_audio_phone">Calls</string>
+    <string name="vehicle_audio_assistant">Voice assistant</string>
+    <string name="vehicle_audio_ringtone">Ringtone</string>
+    <string name="vehicle_audio_output_summary">%1$s output: %2$s</string>
+    <string name="vehicle_map_title">Map projection</string>
+    <string name="vehicle_map_enabled">Project the full navigation map</string>
+    <string name="vehicle_map_configure">Choose display and map area</string>
+    <string name="vehicle_map_setup_hint">Choose an instrument or secondary display. Reconnect your phone after changing the display or map area. Use 0 to follow the display size.</string>
+    <string name="vehicle_map_native_mode">Switch the original instrument navigation mode</string>
+    <string name="vehicle_map_native_hint">Requires a compatible vehicle data bridge. The original mode changes only after the map appears and is restored when projection ends.</string>
+    <string name="vehicle_map_permission">Allow display over other apps</string>
+    <string name="vehicle_map_canvas_width">Map width (pixels, 0 = automatic)</string>
+    <string name="vehicle_map_canvas_height">Map height (pixels, 0 = automatic)</string>
+    <string name="vehicle_map_visible_height">Visible map height (pixels, 0 = full height)</string>
+    <string name="vehicle_map_drag_hint">Drag the lower edge to adjust the visible map area, or enter the dimensions below.</string>
+    <string name="vehicle_map_viewport">Visible map area</string>
+    <string name="vehicle_map_geometry_invalid">Use 0 or a value from 64 to 4096. Visible height cannot exceed map height.</string>
+    <string name="vehicle_map_reconnect">Choose a map display and reconnect your phone first</string>
+    <string name="vehicle_map_waiting">Waiting for the navigation map</string>
+    <string name="vehicle_map_key_input">Choose the button source</string>
+    <string name="vehicle_map_key_input_bridge">Vehicle buttons or rotary knob</string>
+    <string name="vehicle_map_key_input_android">Android buttons</string>
+    <string name="vehicle_map_key_saved">Assigned</string>
+    <string name="vehicle_map_key_default">Default</string>
+    <string name="vehicle_map_bridge_ready">Vehicle button control is ready</string>
+    <string name="vehicle_map_bridge_waiting">Vehicle button assignments take effect after connecting your phone</string>
+</resources>

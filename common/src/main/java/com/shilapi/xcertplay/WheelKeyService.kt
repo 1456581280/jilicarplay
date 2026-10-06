@@ -563,6 +563,7 @@ object WheelZoomSettings {
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
         WheelKeyService.settingsChanged()
+        CarPlayMediaKeys.refreshWheelZoom(context)
     }
 
     fun behaviour(context: Context): Behaviour =
@@ -571,6 +572,7 @@ object WheelZoomSettings {
     fun setBehaviour(context: Context, behaviour: Behaviour) {
         prefs(context).edit().putString(KEY_BEHAVIOUR, behaviour.name).apply()
         WheelKeyService.settingsChanged()
+        CarPlayMediaKeys.refreshWheelZoom(context)
     }
 
     fun joystick(context: Context): Boolean = prefs(context).getBoolean(KEY_JOYSTICK, false)
@@ -590,10 +592,19 @@ object WheelZoomSettings {
     fun key(context: Context, role: Role): WheelKey =
         WheelKey.decode(prefs(context).getString("key_${role.name}", null)) ?: role.defaultKey
 
+    fun assigned(context: Context, role: Role): Boolean = prefs(context).contains("key_${role.name}")
+
     fun assign(context: Context, role: Role, key: WheelKey) {
         prefs(context).edit().putString("key_${role.name}", key.encode()).apply()
         WheelKeyService.settingsChanged()
+        CarPlayMediaKeys.refreshWheelZoom(context)
     }
+
+    // carlito | Reuse the existing assignments; only the input source differs from accessibility.
+    fun bridgeKeys(context: Context): Map<Role, Int> = listOf(Role.MODE, Role.ZOOM_IN, Role.ZOOM_OUT)
+        .mapNotNull { role -> key(context, role).takeIf { it.device == "vehicle_bridge" && it.code in 1..1_000_000 }?.let {
+            role to (GeelySteeringKeyCodes.canonicalize(it.code) ?: it.code)
+        } }.toMap().takeIf { it.size == 3 && it.values.distinct().size == 3 }.orEmpty()
 
     fun roleOf(context: Context, key: WheelKey): Role? = Role.entries.firstOrNull { key(context, it) == key }
 

@@ -1,0 +1,30 @@
+<resources>
+    <string name="vehicle_audio_media">媒体</string>
+    <string name="vehicle_audio_navigation">导航</string>
+    <string name="vehicle_audio_phone">通话</string>
+    <string name="vehicle_audio_assistant">语音助手</string>
+    <string name="vehicle_audio_ringtone">来电铃声</string>
+    <string name="vehicle_audio_output_summary">%1$s声音输出：%2$s</string>
+    <string name="vehicle_map_title">地图投屏</string>
+    <string name="vehicle_map_enabled">投屏完整导航地图</string>
+    <string name="vehicle_map_configure">选择屏幕与地图区域</string>
+    <string name="vehicle_map_setup_hint">选择仪表或副屏。更改屏幕或地图区域后，请重新连接手机。数值填 0 表示跟随屏幕尺寸。</string>
+    <string name="vehicle_map_native_mode">切换原厂仪表导航模式</string>
+    <string name="vehicle_map_native_hint">需要支持该车型的车辆数据桥。地图出画面后才切换仪表模式，投屏结束时恢复原来的模式。</string>
+    <string name="vehicle_map_permission">允许显示在其他应用上层</string>
+    <string name="vehicle_map_canvas_width">地图宽度（像素，0 为自动）</string>
+    <string name="vehicle_map_canvas_height">地图高度（像素，0 为自动）</string>
+    <string name="vehicle_map_visible_height">可见地图高度（像素，0 为完整高度）</string>
+    <string name="vehicle_map_drag_hint">拖动下边缘调整地图显示区域，也可以在下方填写数值。</string>
+    <string name="vehicle_map_viewport">地图显示区域</string>
+    <string name="vehicle_map_geometry_invalid">请填写 0 或 64～4096 的整数。可见高度不能超过地图高度。</string>
+    <string name="vehicle_map_reconnect">请先选择地图屏幕并重新连接手机</string>
+    <string name="vehicle_map_waiting">正在等待导航地图</string>
+    <string name="vehicle_map_key_input">选择按键来源</string>
+    <string name="vehicle_map_key_input_bridge">车辆按键或旋钮</string>
+    <string name="vehicle_map_key_input_android">安卓通用按键</string>
+    <string name="vehicle_map_key_saved">已绑定</string>
+    <string name="vehicle_map_key_default">默认</string>
+    <string name="vehicle_map_bridge_ready">车辆按键已就绪</string>
+    <string name="vehicle_map_bridge_waiting">车辆按键绑定将在连接手机后生效</string>
+</resources>

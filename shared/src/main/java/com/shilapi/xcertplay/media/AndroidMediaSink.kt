@@ -225,6 +225,7 @@ class AndroidMediaSink(
     private val wirelessAudio: Boolean = false,
     private val videoFps: Int = 60,
     private val navigationOutputDevice: AudioOutputDevice? = null,
+    private val audioOutputRoutes: AudioOutputRoutes = AudioOutputRoutes(),
 ) : MediaSink {
     private val appContext = context?.applicationContext
     private val factoryAudio = appContext?.let(GeelyFactoryCarPlay::load)
@@ -527,6 +528,7 @@ class AndroidMediaSink(
             factoryAudio,
             audioManager,
             navigationOutputDevice,
+            audioOutputRoutes,
             onReleased = { renderer ->
                 val callReleased = synchronized(audioModeLock) { closingTelephonyRenderers.remove(renderer) }
                 if (callReleased) finishCommunication(force = true)
@@ -929,6 +931,7 @@ private class AudioRenderer(
     private val factoryAudio: GeelyFactoryCarPlay?,
     private val audioManager: AudioManager?,
     private val navigationOutputDevice: AudioOutputDevice?,
+    private val audioOutputRoutes: AudioOutputRoutes,
     private val onReleased: (AudioRenderer) -> Unit,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
@@ -1175,10 +1178,11 @@ private class AudioRenderer(
             )
         }
         track = built
-        if (selection.channel == AudioChannel.NAVIGATION && navigationOutputDevice != null) {
-            val device = navigationOutputDevice.resolve(audioManager)
+        val preferred = preferredOutput(selection.channel)
+        if (preferred != null) {
+            val device = preferred.resolve(audioManager)
             val accepted = device != null && runCatching { built.setPreferredDevice(device) }.getOrDefault(false)
-            runCatching { report("Audio: navigation preferredDevice=${device?.id ?: -1} accepted=$accepted fallback=${!accepted}") }
+            runCatching { report("Audio: role=${selection.channel} preferredDevice=${device?.id ?: -1} accepted=$accepted fallback=${!accepted}") }
         }
         diagnosticStage = "track-attributes"
         trackAttributes = audioTrackAttributesForFocus(built, attributes)
@@ -1215,9 +1219,12 @@ private class AudioRenderer(
     }
 
     /** 0 uses usage-based routing; 1–20 attempt legacy stream types supported by the head unit. */
-    private fun channelOverride(channel: AudioChannel): Int = when (channel) {
+    private fun preferredOutput(channel: AudioChannel): AudioOutputDevice? = audioOutputRoutes.device(channel)
+        ?: navigationOutputDevice.takeIf { channel == AudioChannel.NAVIGATION }
+
+    private fun channelOverride(channel: AudioChannel): Int = if (preferredOutput(channel) != null) 0 else when (channel) {
         AudioChannel.MEDIA -> mediaChannel
-        AudioChannel.NAVIGATION -> if (navigationOutputDevice == null) navigationChannel else 0
+        AudioChannel.NAVIGATION -> navigationChannel
         else -> 0
     }
 

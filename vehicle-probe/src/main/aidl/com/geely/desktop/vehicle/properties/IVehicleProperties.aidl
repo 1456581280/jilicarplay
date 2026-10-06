@@ -17,4 +17,8 @@ interface IVehicleProperties {
     Bundle registerSteeringListener(IVehicleSteeringCallback callback, in int[] keyCodes, boolean intercept);
     void unregisterSteeringListener(IVehicleSteeringCallback callback);
     Bundle getSteeringStatus();
+    // carlito | Append-only instrument lease; entry is permitted only after the client renders a frame.
+    Bundle updateProjection(IBinder owner, boolean frameReady);
+    Bundle releaseProjection(IBinder owner);
+    Bundle getProjectionStatus();
 }

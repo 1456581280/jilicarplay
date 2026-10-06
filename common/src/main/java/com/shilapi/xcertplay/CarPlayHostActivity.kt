@@ -313,6 +313,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
     private var clusterPresentation: ClusterMapPresentation? = null
+    // carlito | Frozen alongside the phone's advertised cluster geometry.
+    private var vehicleMapPlan: VehicleMapPlan? = null
     private var clusterSurface: Surface? = null
     private var clusterMonitor: DiLink51ClusterMonitor? = null
     private var detectedCluster = ClusterActivityState.Snapshot(null, false)
@@ -844,6 +846,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun ensureClusterPresentation() {
+        if (VehicleMapSettings.enabled(this) || VehicleMapProjection.owns(controller)) {
+            dismissClusterPresentation()
+            return
+        }
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) {
             dismissClusterPresentation()
             return
@@ -1009,6 +1015,35 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun clusterDisplayConfig(useHevc: Boolean): AirPlayDisplayConfig? {
         adbClusterConfigured = false
         clusterStreamOnDisplay = false
+        vehicleMapPlan = null
+        if (VehicleMapSettings.enabled(this)) {
+            val requested = VehicleMapSettings.plan(this) ?: return null
+            // carlito | Automatic output follows the screen aspect and adapts to its decoder.
+            // Explicit numeric canvases remain exact; an unsupported manual choice is rejected.
+            val candidates = if (!requested.automaticCanvas) sequenceOf(requested) else sequence {
+                yield(requested)
+                for (step in 15 downTo 1) {
+                    val width = (requested.width * step / 16) and -2
+                    val height = (requested.height * step / 16) and -2
+                    val visible = (requested.visibleHeight.toLong() * height / requested.height).toInt()
+                    if (width >= 64 && height >= 64 && visible >= 64) {
+                        yield(requested.copy(width = width, height = height, visibleHeight = visible))
+                    }
+                }
+            }
+            val selection = candidates.firstOrNull { largerCanvasSupport(it.config(), useHevc).supported }
+                ?: run {
+                    appendLog("Vehicle map: no supported canvas for the selected decoder")
+                    return null
+                }
+            val config = selection.config()
+            if (selection.width != requested.width || selection.height != requested.height) {
+                appendLog("Vehicle map: automatic decoder canvas ${requested.width}x${requested.height} -> ${selection.width}x${selection.height}")
+            }
+            vehicleMapPlan = selection
+            MapMirrors.streamAspect = config.widthPixels.toDouble() / config.heightPixels
+            return config
+        }
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
         if (AdbClusterRouter.enabled(this) && ClusterActivityOutput.hasConfirmedRoute()) {
             adbClusterConfigured = true
@@ -1187,6 +1222,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     // The dashboard map pause must not stop the stream while a copy of the map is on screen.
     private fun updateClusterMapShown() {
+        if (VehicleMapProjection.owns(controller)) return
         com.shilapi.xcertplay.hud.BydNavigationOutputs.setClusterMapShown((clusterPresentation != null ||
             (ClusterActivityOutput.hasConfirmedRoute() && clusterSurface != null)) && !MapMirrors.any)
         // Wheel zoom needs a physical map; centre-screen copies must not suppress that eligibility.
@@ -3693,6 +3729,7 @@ class CarPlayHostActivity : ComponentActivity() {
             mediaChannel = AirPlayPersistence.loadMediaAudioChannel(this),
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             navigationOutputDevice = AirPlayPersistence.loadNavigationOutputDevice(this),
+            audioOutputRoutes = VehicleAudioRoutes.load(this),
             context = this,
             navigationStreamType = navigationStreamType,
             onScreenStreamActiveChanged = { type, active ->
@@ -4008,6 +4045,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 finish()
             }
         }
+        VehicleMapProjection.attach(this, next, renderer, vehicleMapPlan)
         try {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
@@ -4563,7 +4601,9 @@ class CarPlayHostActivity : ComponentActivity() {
                     // Keep consuming until every finger lifts, avoiding a partial iPhone touch sequence.
                     gestureTracking = false
                     navigationGestureUsed = true
-                    android.widget.Toast.makeText(this, GeelyHudProjection.flyNavigation(this), android.widget.Toast.LENGTH_SHORT).show()
+                    val result = if (VehicleMapSettings.enabled(this)) VehicleMapProjection.flyNavigation()
+                        else GeelyHudProjection.flyNavigation(this)
+                    android.widget.Toast.makeText(this, result, android.widget.Toast.LENGTH_SHORT).show()
                     return true
                 }
                 if (
@@ -4891,6 +4931,7 @@ internal object CarPlayBackgroundSession {
     @Synchronized
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
         if (expected != null && controller !== expected) return
+        VehicleMapProjection.close(controller)
         controller = null
         sink = null
         if (!keepOwner) { stopAction = null; owner = null }

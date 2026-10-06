@@ -25,6 +25,9 @@ internal object GeelySteeringKeyCodes {
     const val VOICE_ASSIST = 200_231
     const val SEEK_NEXT = 210_005
     const val SEEK_PREVIOUS = 210_006
+    // carlito | Generic volume buttons/rotary aliases can be learned for temporary map zoom.
+    const val VOLUME_UP = 200_024
+    const val VOLUME_DOWN = 200_025
 
     fun canonicalize(keyCode: Int): Int? = when (keyCode) {
         MEDIA_PLAY_PAUSE, 85 -> MEDIA_PLAY_PAUSE
@@ -33,6 +36,13 @@ internal object GeelySteeringKeyCodes {
         VOICE_ASSIST, 231 -> VOICE_ASSIST
         SEEK_NEXT -> SEEK_NEXT
         SEEK_PREVIOUS -> SEEK_PREVIOUS
+        VOLUME_UP, 24 -> VOLUME_UP
+        VOLUME_DOWN, 25 -> VOLUME_DOWN
+        200_400 -> 200_400
+        210_007, 110_007 -> 210_007
+        210_008, 110_008 -> 210_008
+        210_009, 110_009 -> 210_009
+        210_010, 110_010 -> 210_010
         else -> null
     }
 
