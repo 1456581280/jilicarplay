@@ -100,6 +100,8 @@ class AutomaticHotspotManager(
         activeManager?.validateReady()
     }
 
+    override fun onStartupFailed() { activeManager?.onStartupFailed() }
+
     override fun connectionDiagnosticSnapshot(): String =
         activeManager?.connectionDiagnosticSnapshot() ?: "automaticBackend=unavailable association=unknown"
 
@@ -116,7 +118,8 @@ class AutomaticHotspotManager(
     }
 
     private fun buildAttempts(): List<Attempt> {
-        val manual = Attempt(WirelessHotspotBackend.MANUAL_HOTSPOT, MANUAL_PROBE_MILLIS) {
+        val manualProbeMillis = if (EcarxHotspotReader.available(appContext)) 10_000L else MANUAL_PROBE_MILLIS
+        val manual = Attempt(WirelessHotspotBackend.MANUAL_HOTSPOT, manualProbeMillis) {
             ManualHotspotManager(
                 context = appContext,
                 ssid = manualSsid,

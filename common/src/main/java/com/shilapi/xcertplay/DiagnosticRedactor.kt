@@ -11,7 +11,21 @@ internal object DiagnosticRedactor {
     fun redact(line: String): String? {
         if (line.contains("TRACE ") || line.contains("PHONE ") || line.contains('\n') || line.contains('\r')) return null
         if (secret.containsMatchIn(line) || namedDevice.containsMatchIn(line)) return null
-        return line.replace(mac, "[address]").replace(identifier, "[identifier]")
-            .replace(address, "[ip]").replace(ipv6, "[ip]").take(700)
+        // carlito: Dedicated network diagnostics retain RFC1918 IPv4 to compare subnet paths.
+        // All other logs, public addresses, hardware identities and secrets remain redacted.
+        val localIps = mutableListOf<String>()
+        val networkLine = Regex("(?:^|\\s)LOCAL_NETWORK (path|path_change|peer|route|listener|accepted|protocol|discovery|probe|publication|coverage|config|monitor)\\b")
+            .containsMatchIn(line)
+        val protected = if (networkLine) address.replace(line) { match ->
+            val octets = match.value.split('.').mapNotNull(String::toIntOrNull)
+            val privateIp = octets.size == 4 && octets.all { it in 0..255 } &&
+                (octets[0] == 10 || octets[0] == 172 && octets[1] in 16..31 ||
+                    octets[0] == 192 && octets[1] == 168)
+            if (privateIp) { localIps.add(match.value); "[localip${localIps.lastIndex}]" } else "[ip]"
+        } else line
+        var safe = protected.replace(mac, "[address]").replace(identifier, "[identifier]")
+            .replace(address, "[ip]").replace(ipv6, "[ip]")
+        localIps.forEachIndexed { index, value -> safe = safe.replace("[localip$index]", value) }
+        return safe.take(700)
     }
 }

@@ -20,6 +20,8 @@ internal data class HotspotNetworkSnapshot(
     val defaultInterface: String?,
     val consistent: Boolean = true,
     val apEnabled: Boolean? = true,
+    val hotspotConfirmed: Boolean = false,
+    val vendorHostAddresses: Map<String, InetAddress> = emptyMap(),
 )
 
 internal data class HotspotSelection(val name: String, val index: Int, val address: InetAddress) {
@@ -36,13 +38,23 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
     return snapshot.interfaces.mapNotNull { iface ->
         val owned = snapshot.apInterfaces?.contains(iface.name) == true
         val upstream = snapshot.wifiUpstreams?.contains(iface.name) == true
-        val address = wirelessHostAddress(iface.addresses.filter {
-            it is Inet6Address && it.isLinkLocalAddress || it is Inet4Address && it.isSiteLocalAddress
-        }, iface.index)
+        val vendorAddress = snapshot.vendorHostAddresses[iface.name]?.takeIf { host ->
+            iface.addresses.any { it.address.contentEquals(host.address) }
+        }
+        // carlito: Preserve a proven client route; otherwise prefer the AP's IPv4 address.
+        val address = vendorAddress ?: manualHotspotHostAddresses(iface.addresses, iface.index).firstOrNull()
         val reason = when {
             !iface.up || iface.index <= 0 -> "interface_down"
             address == null -> "address_unavailable"
+            vendorAddress != null -> "ecarx_client_route"
             owned -> "platform_ap"
+            snapshot.hotspotConfirmed && address is Inet4Address && address.isSiteLocalAddress &&
+                !Regex("^(rmnet|ccmni|pdp|wwan|tun|tap|dummy|veth).*", RegexOption.IGNORE_CASE)
+                    .matches(iface.name) && !upstream ->
+                "local_car_network_candidate"
+            snapshot.hotspotConfirmed && snapshot.apInterfaces.isNullOrEmpty() &&
+                iface.wireless && !upstream && snapshot.wifiUpstreams != null &&
+                snapshot.defaultInterface != iface.name -> "state_confirmed_wireless_ap"
             snapshot.apInterfaces != null -> "not_platform_ap"
             upstream -> "wifi_upstream"
             snapshot.defaultInterface == iface.name -> "default_network_without_ap_evidence"
@@ -55,8 +67,15 @@ internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (Stri
             "scope=${(address as? Inet6Address)?.scopeId ?: 0} evidence=$reason " +
             "ap=${snapshot.apInterfaces?.let { if (owned) "yes" else "no" } ?: "unobservable"} " +
             "defaultConflict=${owned && (upstream || snapshot.defaultInterface == iface.name)}")
-        if (reason != "platform_ap" && reason != "wireless_non_upstream") null
-        else (if (owned) 100 else 0) to HotspotSelection(iface.name, iface.index, address!!)
+        val priority = when (reason) {
+            "ecarx_client_route" -> 150
+            "platform_ap" -> 100
+            "state_confirmed_wireless_ap" -> 90
+            "local_car_network_candidate" -> if (snapshot.defaultInterface == iface.name) 5 else if (iface.wireless) 90 else 20
+            "wireless_non_upstream" -> 0
+            else -> return@mapNotNull null
+        }
+        priority to HotspotSelection(iface.name, iface.index, address!!)
     }.sortedWith(compareByDescending<Pair<Int, HotspotSelection>> { it.first }.thenBy { it.second.name })
         .firstOrNull()?.second
 }

@@ -21,6 +21,7 @@ import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,6 +65,7 @@ class CarPlayVpnService : VpnService() {
     private var bridge: Ipv6NcmBridge? = null
     private var tun: ParcelFileDescriptor? = null
     private var attachGeneration = 0
+    private var wirelessSessionOwner: AirPlaySession? = null
 
     override fun onBind(intent: Intent?): IBinder = binder
 
@@ -173,6 +175,31 @@ class CarPlayVpnService : VpnService() {
     /** Port the AirPlay listener actually bound, which may differ from the configured port. */
     fun boundPort(): Int? = attachment?.config?.port
 
+    @Synchronized
+    fun boundWirelessAddresses(owner: AirPlayListenerIdentity): List<InetAddress> =
+        if (attachment?.listenerIdentity !== owner) emptyList() else
+            (listOfNotNull(serverSocket) + additionalServers).filter { !it.isClosed }.map { it.inetAddress }
+
+    /** carlito: Refresh listeners without tearing down established media or the USB/VPN path. */
+    @Synchronized
+    fun updateWirelessAddresses(owner: AirPlayListenerIdentity, addresses: List<InetAddress>): List<InetAddress> {
+        val current = attachment ?: return emptyList()
+        if (current.listenerIdentity !== owner || !active.get()) return emptyList()
+        val wanted = addresses.distinctBy(::networkAddressKey)
+        val wantedKeys = wanted.map(::networkAddressKey).toSet()
+        val old = listOfNotNull(serverSocket) + additionalServers
+        val servers = old.filter { !it.isClosed && networkAddressKey(it.inetAddress) in wantedKeys }.toMutableList()
+        val present = servers.map { networkAddressKey(it.inetAddress) }.toSet()
+        wanted.filter { networkAddressKey(it) !in present }.forEach { address ->
+            bindAdditional(address, current.config.port, current)?.let(servers::add)
+        }
+        serverSocket = servers.firstOrNull()
+        additionalServers = servers.drop(1)
+        old.filter { it !in servers }.forEach { runCatching { it.close() } }
+        servers.filter { it !in old }.forEach { startAcceptThread(attachGeneration, it) }
+        return servers.map { it.inetAddress }
+    }
+
     override fun onDestroy() {
         detach()
         super.onDestroy()
@@ -182,7 +209,13 @@ class CarPlayVpnService : VpnService() {
         generation: Int,
         replacement: AirPlayAttachment,
     ) {
-        val servers = if (replacement.additionalAddresses.isEmpty()) {
+        val servers = if (replacement.listenerIdentity != null) {
+            // carlito: Optional local candidates may disappear while starting. Keep healthy paths.
+            val primary = AirPlayPortSelector.bind(replacement.address, replacement.config.port)
+            listOf(primary) + replacement.additionalAddresses.distinctBy(::networkAddressKey)
+                .filter { networkAddressKey(it) != networkAddressKey(replacement.address) }
+                .mapNotNull { bindAdditional(it, primary.localPort, replacement) }
+        } else if (replacement.additionalAddresses.isEmpty()) {
             listOf(AirPlayPortSelector.bind(replacement.address, replacement.config.port) { busy, bound ->
                 Log.w(TAG, "AirPlay port $busy is in use; listening on $bound instead")
             })
@@ -198,15 +231,27 @@ class CarPlayVpnService : VpnService() {
         additionalServers = servers.drop(1)
         servers.forEach { bound ->
             runCatching { replacement.listener.onDebugLog(
-                "airplay listener ready family=${if (bound.inetAddress is Inet6Address) "IPv6" else "IPv4"} port=${bound.localPort}",
+                "LOCAL_NETWORK listener ${WirelessNetworkPaths.describe(bound.inetAddress)} port=${bound.localPort} result=ready",
             ) }
-            Thread(
-                { acceptLoop(generation, bound) },
-                "airplay-accept",
-            ).apply {
-                isDaemon = true
-                start()
-            }
+            startAcceptThread(generation, bound)
+        }
+    }
+
+    private fun startAcceptThread(generation: Int, server: ServerSocket) {
+        Thread({ acceptLoop(generation, server) }, "airplay-accept").apply { isDaemon = true; start() }
+    }
+
+    private fun bindAdditional(address: InetAddress, port: Int, current: AirPlayAttachment): ServerSocket? {
+        val server = ServerSocket()
+        return try {
+            server.bind(InetSocketAddress(address, port))
+            current.listener.onDebugLog("LOCAL_NETWORK listener ${WirelessNetworkPaths.describe(address)} port=$port result=ready")
+            server
+        } catch (error: Exception) {
+            runCatching { server.close() }
+            runCatching { current.listener.onDebugLog("LOCAL_NETWORK listener ${WirelessNetworkPaths.describe(address)} " +
+                "port=$port result=failed failure=${error.javaClass.simpleName}") }
+            null
         }
     }
 
@@ -240,7 +285,8 @@ class CarPlayVpnService : VpnService() {
                         ))
                     }
                     runCatching { current.listener.onDebugLog(
-                        "airplay TCP accepted family=${if (socket.inetAddress is Inet6Address) "IPv6" else "IPv4"}",
+                        "LOCAL_NETWORK accepted ${WirelessNetworkPaths.describe(socket.localAddress)} " +
+                            "peer=${socket.inetAddress.hostAddress} port=${socket.localPort} internal=$internalPeer",
                     ) }
                     AirPlaySession(
                         socket = socket,
@@ -250,6 +296,26 @@ class CarPlayVpnService : VpnService() {
                         mfi = current.mfi,
                         listener = object : AirPlaySessionListener by current.listener {
                             override fun onSessionActive(session: AirPlaySession) {
+                                // carlito: Only an established protocol session owns wireless media.
+                                if (current.listenerIdentity != null && !internalPeer) {
+                                    val claimed = synchronized(this@CarPlayVpnService) {
+                                        if (generation != attachGeneration || !active.get()) false
+                                        else if (wirelessSessionOwner == null || wirelessSessionOwner === session ||
+                                            (wirelessSessionOwner?.remoteAddress?.address?.contentEquals(
+                                                session.remoteAddress?.address ?: byteArrayOf()) == true &&
+                                                wirelessSessionOwner?.localAddress?.let { local ->
+                                                    session.localAddress?.let { networkAddressKey(it) == networkAddressKey(local) }
+                                                } == true) ||
+                                            session.controllerId?.let { id -> id.isNotBlank() &&
+                                                wirelessSessionOwner?.controllerId == id } == true) {
+                                            wirelessSessionOwner = session
+                                            true
+                                        } else false
+                                    }
+                                    if (!claimed) { session.close(); return }
+                                    current.listener.onDebugLog("LOCAL_NETWORK protocol established " +
+                                        "${WirelessNetworkPaths.describe(socket.localAddress)} peer=${socket.inetAddress.hostAddress}")
+                                }
                                 if (current.listenerIdentity == null || !internalPeer) current.listener.onSessionActive(session)
                             }
 
@@ -267,7 +333,10 @@ class CarPlayVpnService : VpnService() {
 
                             override fun onSessionEnded(session: AirPlaySession) {
                                 removeSession(session)
-                                if (current.listenerIdentity == null || !internalPeer) current.listener.onSessionEnded(session)
+                                val owned = synchronized(this@CarPlayVpnService) {
+                                    (wirelessSessionOwner === session).also { if (it) wirelessSessionOwner = null }
+                                }
+                                if (current.listenerIdentity == null || !internalPeer && owned) current.listener.onSessionEnded(session)
                             }
                         },
                         media = current.media,
@@ -276,7 +345,26 @@ class CarPlayVpnService : VpnService() {
                 session.start()
             }
         } catch (error: IOException) {
-            if (active.get()) {
+            val stillOwned = synchronized(this) {
+                active.get() && generation == attachGeneration && !server.isClosed &&
+                    (serverSocket === server || server in additionalServers)
+            }
+            if (stillOwned) {
+                // carlito: Losing one optional accept loop must not drop a healthy wireless path.
+                val current = synchronized(this) {
+                    attachment?.takeIf { it.listenerIdentity != null && active.get() && generation == attachGeneration }?.also {
+                        val remaining = (listOfNotNull(serverSocket) + additionalServers)
+                            .filter { candidate -> candidate !== server && !candidate.isClosed }
+                        serverSocket = remaining.firstOrNull()
+                        additionalServers = remaining.drop(1)
+                        runCatching { server.close() }
+                    }
+                }
+                if (current != null && boundWirelessAddresses(current.listenerIdentity!!).isNotEmpty()) {
+                    current.listener.onDebugLog("LOCAL_NETWORK listener ${WirelessNetworkPaths.describe(server.inetAddress)} " +
+                        "result=stopped failure=${error.javaClass.simpleName}")
+                    return
+                }
                 attachment?.listener?.let { onTransportError(generation, it, error) }
             }
         }
@@ -334,6 +422,7 @@ class CarPlayVpnService : VpnService() {
     private fun releaseLocked() {
         attachGeneration += 1
         active.set(false)
+        wirelessSessionOwner = null
         attachment = null
         serverSocket?.close()
         serverSocket = null

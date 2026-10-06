@@ -27,6 +27,8 @@ class WirelessHotspotInfo(
     val hostAddresses: List<InetAddress> = listOfNotNull(hostAddress),
     /** Wi-Fi AP hint for 0x5703; independent of the receiver's AirPlay identity in [bssid]. */
     val accessPointBssid: ByteArray? = null,
+    /** carlito: Candidate listeners/discovery may cover more links than the bootstrap address. */
+    val listenerAddresses: List<InetAddress> = hostAddresses,
 ) {
     override fun toString(): String =
         "WirelessHotspotInfo(backend=${backend.label}, ssid='$ssid', " +
@@ -48,6 +50,9 @@ interface WirelessHotspotManager : Closeable {
 
     /** The authenticated wireless session has rendered CarPlay; AP creation alone is insufficient. */
     fun onCarPlayConfirmed() {}
+
+    /** carlito: A bounded retry can prefer a different bootstrap path after no incoming TCP. */
+    fun onStartupFailed() {}
 
     /** Counts reported by the framework, when available; never contains station identities. */
     fun connectionDiagnosticSnapshot(): String = "association=not_exposed"

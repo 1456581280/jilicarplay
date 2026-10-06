@@ -68,8 +68,10 @@ class IphoneUsbHost(
     private val usbManager: UsbManager,
     private val matcher: IphoneUsbMatcher,
     private val permissionAction: String = "${context.packageName}.IPHONE_USB_PERMISSION",
+    private val onDiagnostic: (String) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
+    private var lastDiscovery: String? = null
 
     sealed class PermissionRequest {
         data class AlreadyGranted(val device: UsbDevice) : PermissionRequest()
@@ -93,12 +95,36 @@ class IphoneUsbHost(
         data class Failed(val error: IphoneUsbException) : Iap2SessionResult()
     }
 
-    fun discover(): List<UsbDevice> =
-        usbManager.deviceList.values.filter { matcher.matches(it.vendorId, it.productId) }
+    @Synchronized
+    fun discover(): List<UsbDevice> {
+        // carlito: Record enumeration before matching, distinguishing filtering from no device.
+        val devices = try { usbManager.deviceList.values.sortedBy { it.deviceId } } catch (error: RuntimeException) {
+            diagnostic("USB_DIAGNOSTIC enumeration result=failed failure=${error.javaClass.simpleName}")
+            throw error
+        }
+        val summaries = devices.map(::deviceSummary)
+        val signature = summaries.joinToString(";")
+        if (signature != lastDiscovery) {
+            lastDiscovery = signature
+            diagnostic("USB_DIAGNOSTIC enumeration raw=${devices.size} " +
+                "matched=${devices.count { matcher.matches(it.vendorId, it.productId) }}")
+            summaries.forEach { diagnostic("USB_DIAGNOSTIC device $it") }
+        }
+        return devices.filter { matcher.matches(it.vendorId, it.productId) }
+    }
+
+    private fun deviceSummary(device: UsbDevice): String =
+        "id=${device.deviceId} vid=0x${device.vendorId.toString(16)} pid=0x${device.productId.toString(16)} " +
+            "class=${device.deviceClass}/${device.deviceSubclass}/${device.deviceProtocol} " +
+            "configs=${device.configurationCount} matched=${matcher.matches(device.vendorId, device.productId)} " +
+            "permission=${runCatching { usbManager.hasPermission(device) }.getOrNull()}"
+
+    private fun diagnostic(message: String) { runCatching { onDiagnostic(message) } }
 
     @Throws(IphoneUsbException::class)
     fun requestPermission(device: UsbDevice): PermissionRequest {
         requireConfiguredDevice(device)
+        diagnostic("USB_DIAGNOSTIC permission_request ${deviceSummary(device)}")
         if (usbManager.hasPermission(device)) return PermissionRequest.AlreadyGranted(device)
 
         usbManager.requestPermission(device, permissionPendingIntent())
@@ -109,6 +135,7 @@ class IphoneUsbHost(
     fun parsePermissionResult(intent: Intent): PermissionResult? {
         if (intent.action != permissionAction) return null
         val device = intent.usbDevice() ?: return null
+        diagnostic("USB_DIAGNOSTIC permission_result granted=${intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)} ${deviceSummary(device)}")
         if (!matcher.matches(device.vendorId, device.productId)) return null
         return if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
             PermissionResult.Granted(device)
@@ -130,7 +157,11 @@ class IphoneUsbHost(
 
     /** Register once for this host instance and close the returned handle to unregister it. */
     fun registerAttachReceiver(onAttached: (UsbDevice) -> Unit): Closeable =
-        registerReceiver(IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
+        registerReceiver(IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }) {
+            it.usbDevice()?.let { device -> diagnostic("USB_DIAGNOSTIC event " +
+                "kind=${if (it.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) "attached" else "detached"} ${deviceSummary(device)}") }
             parseAttachedDevice(it)?.let(onAttached)
         }
 

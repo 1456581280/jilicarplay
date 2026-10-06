@@ -17,6 +17,8 @@ internal class FirstTcpWatchdog(
     private var firstStartNanos: Long? = null
     private var firstAcceptNanos: Long? = null
     private var success = false
+    @Volatile var protocolTimedOut = false
+        private set
     private var cancelTimer: (() -> Unit)? = null
 
     @Synchronized fun startSessionSent(sentAtNanos: Long) {
@@ -33,8 +35,10 @@ internal class FirstTcpWatchdog(
         if (firstAcceptNanos == null) {
             firstAcceptNanos = event.acceptedAtNanos
             log("first TCP atNs=${event.acceptedAtNanos}")
+            // carlito: An open TCP port is not proof that the CarPlay protocol became ready.
+            cancel()
+            if (!success) cancelTimer = schedule(timeoutMillis, ::expireProtocol)
         }
-        cancel()
         return true
     }
 
@@ -64,4 +68,15 @@ internal class FirstTcpWatchdog(
     }
 
     private fun cancel() { cancelTimer?.invoke(); cancelTimer = null }
+
+    private fun expireProtocol() {
+        synchronized(this) {
+            if (terminated || success || firstAcceptNanos == null) return
+            terminated = true
+            protocolTimedOut = true
+            cancelTimer = null
+            log("AirPlay protocol timeout atNs=${nowNanos()} firstTcpNs=$firstAcceptNanos")
+        }
+        onTimeout()
+    }
 }

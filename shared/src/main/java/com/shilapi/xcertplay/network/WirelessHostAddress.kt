@@ -27,3 +27,9 @@ internal fun existingWifiHostAddresses(addresses: List<InetAddress>, interfaceIn
     }
     return listOfNotNull(ipv4, ipv6)
 }
+
+/** carlito: A car-owned AP serves both families, preferring its private IPv4 path. */
+internal fun manualHotspotHostAddresses(addresses: List<InetAddress>, interfaceIndex: Int): List<InetAddress> =
+    existingWifiHostAddresses(addresses.filter {
+        it is Inet4Address && it.isSiteLocalAddress || it is Inet6Address && it.isLinkLocalAddress
+    }, interfaceIndex)

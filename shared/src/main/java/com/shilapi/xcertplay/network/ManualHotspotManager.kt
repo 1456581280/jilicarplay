@@ -46,6 +46,9 @@ class ManualHotspotManager(
     private val expectedBand = band
     private val expectedChannel = channel
     private val expectedSecurity = security.toIap2Security()
+    // carlito: Remember only short-lived failed interface choices, never hotspot credentials.
+    private val pathPreferences = appContext.getSharedPreferences("carplay_local_path_recovery", Context.MODE_PRIVATE)
+    private val recoveryKey = "${Build.MODEL}_${expectedSsid?.hashCode() ?: 0}"
 
     @Volatile
     private var closed = false
@@ -73,26 +76,6 @@ class ManualHotspotManager(
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
-        val apConfiguration = readApConfiguration()
-        if (!preferSystemConfiguration && apConfiguration != null &&
-            expectedSsid != null && apConfiguration.ssid != expectedSsid
-        ) {
-            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
-                "Manual hotspot SSID does not match the active local AP configuration: " +
-                    "'${apConfiguration.ssid}'",
-            )
-        }
-        if (!preferSystemConfiguration) validateApConfiguration(apConfiguration)
-        val activeSsid = when {
-            preferSystemConfiguration && apConfiguration != null -> apConfiguration.ssid
-            expectedSsid != null -> expectedSsid
-            apConfiguration != null -> apConfiguration.ssid
-            else -> throw WirelessStartupException(
-                WirelessStartupFailure.HOTSPOT_CONFIGURATION,
-                "The active hotspot configuration is not readable",
-            )
-        }
-
         // 只在候选证据变化时记录，避免每 250ms 重复输出。
         val selected = ManualHotspotReadiness(
             sample = {
@@ -103,15 +86,64 @@ class ManualHotspotManager(
                         messages.forEach(onDiagnostic)
                         lastSampleLog = messages
                     }
+                }.let { snapshot ->
+                    val recent = System.currentTimeMillis() - pathPreferences.getLong("${recoveryKey}_time", 0) in 0..900_000
+                    val failed = if (recent) pathPreferences.getStringSet(recoveryKey, emptySet()).orEmpty() else emptySet()
+                    val alternatives = snapshot.copy(interfaces = snapshot.interfaces.filter { it.name !in failed })
+                    if (failed.isNotEmpty() && selectHotspotInterface(alternatives) {} != null &&
+                        snapshot.vendorHostAddresses.isEmpty()) alternatives else snapshot
                 }
             },
             cancelled = { closed || isCancelled() },
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
             log = {},
         ).await(timeoutMillis)
+        // The vendor service may bind asynchronously; read its configuration after readiness.
+        val vendorState = interfaces.vendorSnapshot()
+        val apConfiguration = readApConfiguration()?.takeUnless {
+            expectedSsid != null && it.ssid != expectedSsid &&
+                (vendorState.wifi6Enabled == true || vendorState.enabled == true && !preferSystemConfiguration)
+        }?.let { configuration ->
+            val bandChanged = vendorState.band != null && configuration.band != vendorState.band
+            val savedCredentials = vendorState.wifi6Enabled == true && expectedSsid != null
+            ManualApConfiguration(configuration.ssid, vendorState.band ?: configuration.band,
+                if (bandChanged) 0 else configuration.channel,
+                if (bandChanged) null else configuration.frequencyMHz,
+                if (savedCredentials) expectedSecurity else configuration.security,
+                if (savedCredentials) passphrase else configuration.passphrase)
+        }
+        if (!preferSystemConfiguration && apConfiguration != null &&
+            expectedSsid != null && apConfiguration.ssid != expectedSsid
+        ) {
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
+                "Manual hotspot SSID does not match the active local AP configuration: " +
+                    "'${apConfiguration.ssid}'",
+            )
+        }
+        if (!preferSystemConfiguration) validateApConfiguration(apConfiguration)
+        val activeSsid = when {
+            vendorState.wifi6Enabled == true && expectedSsid != null -> expectedSsid
+            preferSystemConfiguration && apConfiguration != null -> apConfiguration.ssid
+            expectedSsid != null -> expectedSsid
+            apConfiguration != null -> apConfiguration.ssid
+            else -> throw WirelessStartupException(
+                WirelessStartupFailure.HOTSPOT_CONFIGURATION, "The active hotspot configuration is not readable",
+            )
+        }
         confirmed = selected
         onDiagnostic("hotspot interface confirmed iface=${selected.name} index=${selected.index} atNs=${System.nanoTime()}")
         val network = NetworkInterface.getByName(selected.name)
+        // carlito: Discovery, TCP listeners and iAP2 must use the same AP address set.
+        val hostAddresses = (listOf(selected.address) + manualHotspotHostAddresses(
+            network?.inetAddresses?.toList().orEmpty(), selected.index,
+        )).distinct()
+        // carlito: Keep bootstrap credentials/addresses separate from parallel local listeners.
+        val listenerAddresses = (hostAddresses + WirelessNetworkPaths.addresses(appContext))
+            .distinctBy(::networkAddressKey)
+        listenerAddresses.forEach { onDiagnostic("LOCAL_NETWORK path ${WirelessNetworkPaths.describe(it)}") }
+        onDiagnostic("LOCAL_NETWORK config source=${if (preferSystemConfiguration) "automatic" else "saved"} " +
+            "configuredMatchesSaved=${expectedSsid?.let { it == activeSsid } ?: "unknown"} " +
+            "vendorWifi6=${vendorState.wifi6Enabled} listenerCount=${listenerAddresses.size}")
         val localInterface = LocalHotspotInterface(selected.name, selected.address,
             runCatching { network?.hardwareAddress?.toMacAddressString() }.getOrNull()
                 ?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
@@ -132,6 +164,7 @@ class ManualHotspotManager(
         }
         val security = apConfiguration?.security ?: expectedSecurity
         val systemPassphrase = apConfiguration?.passphrase
+            ?.takeUnless { vendorState.wifi6Enabled == true && expectedSsid != null }
             ?.takeIf { it.length in 8..63 && '\u0000' !in it }
         val effectivePassphrase = when (security) {
             Iap2WirelessSecurity.NONE -> ""
@@ -141,7 +174,8 @@ class ManualHotspotManager(
             "security=$security channelKnown=${channel > 0} " +
             "credentialsSource=${if (systemPassphrase != null) "system" else "saved"} " +
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
-            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
+            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"} " +
+            "addressCount=${hostAddresses.size} families=${hostAddresses.joinToString(",") { if (it is Inet6Address) "IPv6" else "IPv4" }}")
         if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is secured but no passphrase was provided")
         }
@@ -154,7 +188,7 @@ class ManualHotspotManager(
                     "$expectedChannel",
             )
         }
-        val observedBandLabel = wifiBandLabel(apConfiguration?.band)
+        val observedBandLabel = wifiBandLabel(interfaces.vendorSnapshot().band ?: apConfiguration?.band)
         return WirelessHotspotInfo(
             ssid = activeSsid,
             passphrase = effectivePassphrase,
@@ -164,12 +198,10 @@ class ManualHotspotManager(
             bssid = localInterface.hardwareAddress,
             interfaceName = localInterface.name,
             hostAddress = localInterface.hostAddress,
-            bandLabel = when (expectedBand) {
-                ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
-                ManualHotspotBand.GHZ_5 -> "5 GHz"
-                ManualHotspotBand.AUTO ->
-                    frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
-            },
+            hostAddresses = hostAddresses,
+            listenerAddresses = listenerAddresses,
+            // carlito: A configured preference is not evidence of the active hotspot band.
+            bandLabel = frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto",
             backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
         )
     }
@@ -178,11 +210,32 @@ class ManualHotspotManager(
         val expected = confirmed ?: throw WirelessStartupException(
             WirelessStartupFailure.HOTSPOT_NOT_READY, "Hotspot network is not ready",
         )
-        val current = selectHotspotInterface(interfaces.sample(), onDiagnostic)
-        if (closed || isCancelled() || current == null || !expected.sameAddress(current)) {
+        // carlito: A newly discovered better candidate must not invalidate a live original path.
+        val stillLocal = runCatching { NetworkInterface.getByName(expected.name)?.let { iface ->
+            iface.isUp && iface.index == expected.index && iface.inetAddresses.toList().any {
+                it.address.contentEquals(expected.address.address)
+            }
+        } == true }.getOrDefault(false)
+        if (closed || isCancelled() || !stillLocal) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
                 "Hotspot interface or address changed before publication")
         }
+    }
+
+    override fun connectionDiagnosticSnapshot(): String = interfaces.vendorDiagnosticSnapshot()
+
+    override fun onStartupFailed() {
+        confirmed?.let { selected ->
+            val failed = pathPreferences.getStringSet(recoveryKey, emptySet()).orEmpty().toMutableSet()
+            failed.add(selected.name)
+            pathPreferences.edit().putStringSet(recoveryKey, failed)
+                .putLong("${recoveryKey}_time", System.currentTimeMillis()).apply()
+            onDiagnostic("LOCAL_NETWORK route retry_after_no_tcp iface=${selected.name} tried=${failed.size}")
+        }
+    }
+
+    override fun onCarPlayConfirmed() {
+        pathPreferences.edit().remove(recoveryKey).remove("${recoveryKey}_time").apply()
     }
 
     override fun close() {

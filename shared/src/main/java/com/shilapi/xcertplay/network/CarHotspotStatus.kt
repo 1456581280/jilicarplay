@@ -21,6 +21,12 @@ object CarHotspotStatus {
      * while tethering is off.
      */
     fun isEnabled(context: Context): Boolean? {
+        val enabled = androidEnabled(context)
+        // The standard Wi-Fi service cannot rule out a separately managed ECARX AP.
+        return enabled.takeUnless { it == false && EcarxHotspotReader.available(context) }
+    }
+
+    internal fun androidEnabled(context: Context): Boolean? {
         val app = context.applicationContext
         val wifi = app.getSystemService(WifiManager::class.java)
         return read(

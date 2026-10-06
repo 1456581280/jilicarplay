@@ -198,6 +198,7 @@ class CarPlayController(
             } else {
                 IphoneUsbMatcher.appleVendor()
             },
+            onDiagnostic = ::debugLog,
         )
     }
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -256,6 +257,8 @@ class CarPlayController(
     @Volatile private var hotspot: WirelessHotspotManager? = null
     @Volatile private var wifiScanPause: WifiScanPause? = null
     @Volatile private var bonjour: CarPlayBonjour? = null
+    // carlito: The path monitor shares the wireless listener's generation and lifetime.
+    private var networkPathMonitor: com.shilapi.xcertplay.network.WirelessNetworkMonitor? = null
     private val wirelessResourceLock = Any()
     private val wirelessFailureReported = AtomicBoolean(false)
     @Volatile private var firstTcpWatchdog: FirstTcpWatchdog? = null
@@ -1206,8 +1209,12 @@ class CarPlayController(
                 },
                 onTimeout = {
                     if (!closed && generation == wirelessGeneration.get()) {
-                        fail(WirelessStartupException(WirelessStartupFailure.FIRST_TCP_TIMEOUT,
-                            "No AirPlay TCP after CarPlay StartSession"), generation)
+                        val protocolTimeout = firstTcpWatchdog?.protocolTimedOut == true
+                        if (!protocolTimeout) hotspot?.onStartupFailed()
+                        fail(WirelessStartupException(
+                            if (protocolTimeout) WirelessStartupFailure.AIRPLAY_PROTOCOL_TIMEOUT else WirelessStartupFailure.FIRST_TCP_TIMEOUT,
+                            if (protocolTimeout) "AirPlay protocol did not become ready after TCP connected"
+                            else "No AirPlay TCP after CarPlay StartSession"), generation)
                         Thread({ closeWirelessStack(generation = generation) }, "diplay-startup-cleanup")
                             .apply { isDaemon = true; start() }
                     }
@@ -1305,7 +1312,7 @@ class CarPlayController(
                         listener = wirelessSessionListener(generation, watchdog),
                         listenerIdentity = watchdog.listener,
                         media = media,
-                        additionalBindAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
+                        additionalBindAddresses = hotspotInfo.listenerAddresses.filter { it != hostAddress },
                     )
                 ) {
                     CarPlayVpnService.AttachResult.Started -> Unit
@@ -1316,6 +1323,8 @@ class CarPlayController(
                 }
             }
             val listenerPort = service.boundPort() ?: wirelessAirPlayConfig.port
+            val listenerAddresses = service.boundWirelessAddresses(watchdog.listener)
+            if (listenerAddresses.isEmpty()) throw IOException("No local AirPlay listener is available")
             val advertisedAirPlayConfig = wirelessAirPlayConfig.copy(port = listenerPort)
             debugLog(
                 "wireless AirPlay listener attached bind=$hostAddressText " +
@@ -1336,7 +1345,8 @@ class CarPlayController(
                 // or IPv6 while the listener/probe was bound to the AP's IPv4 address.
                 useInterfaceMdns = true,
                 onEvent = { event -> debugLog("wireless bonjour: ${event.diagnosticSummary()}") },
-                additionalAddresses = hotspotInfo.hostAddresses.filter { it != hostAddress },
+                additionalAddresses = listenerAddresses.filter { it != hostAddress },
+                onDiagnostic = ::debugLog,
             )
             synchronized(wirelessResourceLock) {
                 if (isStaleWirelessRun(generation)) return
@@ -1346,6 +1356,23 @@ class CarPlayController(
             }
             startedBonjour = bonjourClient
             diagnostics.start()
+            if (hotspotInfo.backend == WirelessHotspotBackend.MANUAL_HOTSPOT) {
+                val monitor = com.shilapi.xcertplay.network.WirelessNetworkMonitor(appContext,
+                    onChange = { addresses ->
+                        synchronized(wirelessResourceLock) {
+                            if (!isStaleWirelessRun(generation)) {
+                                val bound = service.updateWirelessAddresses(watchdog.listener, addresses)
+                                bonjourClient.updateAddresses(bound)
+                                debugLog("LOCAL_NETWORK coverage candidates=${addresses.size} listeners=${bound.size} port=$listenerPort")
+                            }
+                        }
+                    }, log = ::debugLog, initialAddresses = hotspotInfo.hostAddresses)
+                synchronized(wirelessResourceLock) {
+                    if (isStaleWirelessRun(generation)) { monitor.close(); return }
+                    networkPathMonitor = monitor
+                    monitor.start()
+                }
+            }
             debugLog("wireless Bonjour services started mode=interface iface=${hotspotInfo.interfaceName ?: "unknown"}")
             if (isStaleWirelessRun(generation)) {
                 return
@@ -1417,7 +1444,8 @@ class CarPlayController(
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                ipAddresses = listOf(hostAddressText),
+                // carlito: Publish every address served by discovery and the AirPlay listeners.
+                ipAddresses = (listOf(hostAddress) + hotspotInfo.hostAddresses).distinct().map(::hostAddressText),
                 airPlayPort = listenerPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
@@ -1429,6 +1457,7 @@ class CarPlayController(
             debugLog(
                 "wireless endpoint addressCount=${endpoint.ipAddresses.size} " +
                     "family=${if (hostAddress is Inet6Address) "IPv6" else "IPv4"} " +
+                    "families=${endpoint.ipAddresses.joinToString(",") { if (':' in it) "IPv6" else "IPv4" }} " +
                     "port=${endpoint.airPlayPort} channel=${endpoint.channel} security=${endpoint.security}",
             )
             media.setIapTunnelHandler(::startWirelessTunnelControl)
@@ -2344,6 +2373,8 @@ class CarPlayController(
             wirelessPeerBluetoothAddress = null
             val owner = firstTcpWatchdog?.listener
             firstTcpWatchdog?.terminate()
+            networkPathMonitor?.close()
+            networkPathMonitor = null
             val diagnostics = wirelessDiagnostics
             wirelessDiagnostics = null
             diagnostics?.close()
