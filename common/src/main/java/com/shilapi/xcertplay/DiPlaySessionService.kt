@@ -33,7 +33,8 @@ class DiPlaySessionService : Service() {
             .setContentIntent(open).setOngoing(true)
             .addAction(Notification.Action.Builder(null, getString(R.string.connection_notification_disconnect), stop).build()).build()
         if (Build.VERSION.SDK_INT >= 29) {
-            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            // carlito | Android 15+ requires an active playback service for background audio focus.
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             if (Build.VERSION.SDK_INT >= 30 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                 types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }

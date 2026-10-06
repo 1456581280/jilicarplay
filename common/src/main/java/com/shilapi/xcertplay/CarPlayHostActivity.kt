@@ -3888,6 +3888,7 @@ class CarPlayHostActivity : ComponentActivity() {
         controller = snapshot.controller
         updateClusterMapShown()
         sink = snapshot.sink
+        snapshot.sink.setAudioOwnershipChangedListener(snapshot.controller::setBluetoothAudioOwnership)
         sessionDisplay = snapshot.display
         resetSidePanel()
         if (snapshot.display.viewAreas?.let { it.kindOf(it.current) == CarPlayViewAreas.Kind.SIDE_PANEL } == true) {
@@ -4025,6 +4026,7 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         )
         controller = next
+        renderer.setAudioOwnershipChangedListener(next::setBluetoothAudioOwnership)
         resetSidePanel() // a new session starts without the side panel
         updateClusterMapShown()
         next.setHudNavigationListener(GeelyHudProjection::update)

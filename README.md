@@ -1,10 +1,16 @@
 # DiPlay
 
-**CarPlay for compatible BYD Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
+**CarPlay for compatible Android head units.** Wired and wireless, with the familiar DiAuto interface. Independent app: `com.shihab.diplay`.
 
-> **BYD support scope:** These projects focus on BYD cars. They may work on other brands, but other brands are unsupported and there are no plans to add support or fix brand-specific incompatibilities.
+This fork adds generic audio coordination and map projection, plus Geely vehicle integration through a separately installed GD vehicle bridge. Compatibility depends on the head unit's interfaces and permissions. Android 9 or later is required.
 
-[Download & website](https://shihabal3amri.github.io/DiPlay/) · [Release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.13) · [Report a problem](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
+[Download v0.2.13.1](https://github.com/carlito12345/DiPlay/releases/tag/v0.2.13.1) · [Update notes](docs/UPDATE-NOTES-0.2.13.1.md) · [Report a problem](https://github.com/carlito12345/DiPlay/issues)
+
+## 0.2.13.1
+
+Bluetooth music handoff and restoration, shared audio focus for navigation/calls/Siri, independent output and microphone selection, and device reconnect recovery. Full map projection supports compatible secondary displays, automatic dimensions, three-finger switching and volume-button/rotary zoom. Install the separate GD bridge for supported vehicle properties, buttons and native instrument modes. Physical vehicle validation remains necessary.
+
+See [audio coordination](docs/AUDIO-COORDINATION.md) and [map projection](docs/VEHICLE_MAP_PROJECTION.md). The upstream 0.2.13 information below is retained for reference.
 
 ![DiPlay home](site/assets/home.png)
 

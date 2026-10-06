@@ -1,3 +1,12 @@
+# DiPlay 0.2.13.1 — 2026-10-07
+
+- Coordinate Bluetooth music with CarPlay ownership and restore app-disconnected music connections when possible.
+- Share audio focus across media, guidance, calls, ringtones and Siri; yield on loss and protect active native calls.
+- Select each audio output and the call/Siri microphones independently, retaining numeric device controls and reconnect recovery.
+- Project complete navigation maps on compatible displays with automatic dimensions, adjustable viewports, three-finger switching and volume-button/rotary zoom.
+- Support optional GD vehicle bridge instrument-mode leases after the first actual map frame, with restoration on exit.
+- Keep the existing signing identity and Android 9 minimum. Vehicle behavior requires physical validation.
+
 # DiPlay 0.2.13 — 2026-10-06
 
 - Enable the legacy Android 9 Wi-Fi Direct group path with generated credentials and serialized ownership/cleanup; requested frequency remains unverified on Android 9 (#282).

@@ -27,4 +27,9 @@
     <string name="vehicle_map_key_default">默认</string>
     <string name="vehicle_map_bridge_ready">车辆按键已就绪</string>
     <string name="vehicle_map_bridge_waiting">车辆按键绑定将在连接手机后生效</string>
+    <!-- carlito | Independent microphone preferences. -->
+    <string name="vehicle_audio_phone_microphone">通话麦克风</string>
+    <string name="vehicle_audio_assistant_microphone">语音助手麦克风</string>
+    <string name="vehicle_audio_input_summary">%1$s输入：%2$s</string>
+    <string name="vehicle_audio_input_hint">在通话或语音请求时使用；设备不可用时使用系统麦克风。</string>
 </resources>

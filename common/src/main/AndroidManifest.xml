@@ -8,7 +8,9 @@
     <!-- Optional, user-authorized startup of the car's own hotspot. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
+    <!-- carlito | Playback remains an eligible audio focus owner while another app is visible. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
@@ -61,7 +63,7 @@
             </intent-filter>
         </activity>
         <service android:name="com.shilapi.xcertplay.DiPlaySessionService"
-            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location" />
+            android:exported="false" android:foregroundServiceType="connectedDevice|microphone|location|mediaPlayback" />
 
         <activity
             android:name="com.shilapi.xcertplay.CarPlayHostActivity"

@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.media
 
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AudioEffect
@@ -28,6 +29,10 @@ internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val onDiagnostic: (String) -> Unit = {},
     private val factorySource: Int? = null,
+    // carlito | Per-role input routing and counters survive focus-related capture restarts.
+    private val preferredInput: AudioOutputDevice? = null,
+    private val audioManager: AudioManager? = null,
+    private val counters: MicrophoneCounters = MicrophoneCounters(),
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
@@ -60,9 +65,9 @@ internal class MicrophoneUplink(
             return false
         }
 
-        val source = when (config.audioType) {
-            "telephony" -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
-            "speechrecognition" -> MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val source = when {
+            isPhoneAudio(config.audioType) -> MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            config.audioType.equals("speechrecognition", true) -> MediaRecorder.AudioSource.VOICE_RECOGNITION
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
@@ -95,7 +100,8 @@ internal class MicrophoneUplink(
                     null
                 } else {
                     stage = MicrophoneFailureStage.RECORDING
-                    if (config.audioType == "telephony") effects = voiceEffects(built.audioSessionId)
+                    applyInputDevice(built)
+                    if (isPhoneAudio(config.audioType)) effects = voiceEffects(built.audioSessionId)
                     built.startRecording()
                     check(built.recordingState == AudioRecord.RECORDSTATE_RECORDING) { "Microphone did not start recording" }
                     built
@@ -194,7 +200,6 @@ internal class MicrophoneUplink(
     private fun capture(recorder: AudioRecord, socket: DatagramSocket) {
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
-        val counters = MicrophoneCounters()
         val routeInfo = { routeType(recorder) }
         var filled = 0
         try {
@@ -261,13 +266,13 @@ internal class MicrophoneUplink(
         body: ByteArray,
         samples: Int,
     ) {
-        val packet = MicrophonePacketizer.sealPacket(
+        val packet = synchronized(counters) { MicrophonePacketizer.sealPacket(
             key = config.key,
             payloadType = config.payloadType,
             counters = counters,
             body = body,
             samples = samples,
-        )
+        ) }
         try {
             socket.send(DatagramPacket(packet, packet.size, config.host, config.port))
             stats.sent()
@@ -278,6 +283,17 @@ internal class MicrophoneUplink(
     }
 
     private fun routeType(recorder: AudioRecord): Int? = runCatching { recorder.routedDevice?.type }.getOrNull()
+
+    fun refreshInputDevice() { recorder?.let(::applyInputDevice) }
+
+    private fun applyInputDevice(record: AudioRecord) {
+        runCatching {
+            val device = preferredInput?.resolveInput(audioManager)
+            val accepted = record.setPreferredDevice(device)
+            if (!accepted) record.setPreferredDevice(null)
+            if (preferredInput != null) onDiagnostic("Audio: microphone preferred=${device?.id} accepted=$accepted")
+        }.onFailure { runCatching { record.setPreferredDevice(null) } }
+    }
 
     override fun close() {
         if (!running.compareAndSet(true, false)) {

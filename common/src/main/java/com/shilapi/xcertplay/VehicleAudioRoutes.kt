@@ -7,12 +7,14 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.AudioOutputDevice
 import com.shilapi.xcertplay.media.AudioOutputRoutes
 
-internal enum class VehicleAudioRole(val label: Int, val usage: Int, val factoryKind: String) {
+internal enum class VehicleAudioRole(val label: Int, val usage: Int, val factoryKind: String, val input: Boolean = false) {
     MEDIA(R.string.vehicle_audio_media, AudioAttributes.USAGE_MEDIA, "MEDIA"),
     NAVIGATION(R.string.vehicle_audio_navigation, AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE, "GUIDANCE"),
     PHONE(R.string.vehicle_audio_phone, AudioAttributes.USAGE_VOICE_COMMUNICATION, "PHONE"),
     ASSISTANT(R.string.vehicle_audio_assistant, AudioAttributes.USAGE_ASSISTANT, "SIRI"),
     RINGTONE(R.string.vehicle_audio_ringtone, AudioAttributes.USAGE_NOTIFICATION_RINGTONE, "RING"),
+    PHONE_MICROPHONE(R.string.vehicle_audio_phone_microphone, AudioAttributes.USAGE_VOICE_COMMUNICATION, "PHONE", true),
+    ASSISTANT_MICROPHONE(R.string.vehicle_audio_assistant_microphone, AudioAttributes.USAGE_ASSISTANT, "SIRI", true),
 }
 
 internal object VehicleAudioRoutes {
@@ -29,5 +31,6 @@ internal object VehicleAudioRoutes {
         }
     }
     fun load(context: Context) = AudioOutputRoutes(get(context, VehicleAudioRole.MEDIA), get(context, VehicleAudioRole.NAVIGATION),
-        get(context, VehicleAudioRole.PHONE), get(context, VehicleAudioRole.ASSISTANT), get(context, VehicleAudioRole.RINGTONE))
+        get(context, VehicleAudioRole.PHONE), get(context, VehicleAudioRole.ASSISTANT), get(context, VehicleAudioRole.RINGTONE),
+        get(context, VehicleAudioRole.PHONE_MICROPHONE), get(context, VehicleAudioRole.ASSISTANT_MICROPHONE))
 }

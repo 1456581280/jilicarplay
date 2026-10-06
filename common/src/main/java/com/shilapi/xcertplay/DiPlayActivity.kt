@@ -1460,7 +1460,7 @@ class DiPlayActivity : ComponentActivity() {
     private fun navigationOutputControl(parent: LinearLayout, role: VehicleAudioRole = VehicleAudioRole.NAVIGATION) {
         val manager = getSystemService(android.media.AudioManager::class.java)
         val saved = VehicleAudioRoutes.get(this, role)
-        val current = saved?.resolve(manager)
+        val current = if (role.input) saved?.resolveInput(manager) else saved?.resolve(manager)
         fun deviceLabel(device: android.media.AudioDeviceInfo): String {
             val name = device.productName.toString().trim()
                 .takeIf { it.isNotBlank() && '/' !in it && '\\' !in it }
@@ -1472,11 +1472,11 @@ class DiPlayActivity : ComponentActivity() {
             saved != null -> getString(R.string.navigation_output_unavailable)
             else -> getString(R.string.navigation_output_auto)
         }
-        val control = button(getString(R.string.vehicle_audio_output_summary, getString(role.label), value), false) {}
+        val control = button(getString(if (role.input) R.string.vehicle_audio_input_summary else R.string.vehicle_audio_output_summary, getString(role.label), value), false) {}
         control.setOnClickListener {
-            val devices = AudioOutputDevice.outputs(manager)
+            val devices = if (role.input) AudioOutputDevice.inputs(manager) else AudioOutputDevice.outputs(manager)
             val previous = VehicleAudioRoutes.get(this, role)
-            val resolved = previous?.resolve(manager)
+            val resolved = if (role.input) previous?.resolveInput(manager) else previous?.resolve(manager)
             val preview = AudioChannelPreview(this) { toast(getString(R.string.navigation_output_unavailable)) }
             val fields = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
             val number = EditText(this).apply {
@@ -1486,19 +1486,19 @@ class DiPlayActivity : ComponentActivity() {
                 setText((resolved?.id ?: previous?.id)?.toString().orEmpty())
             }
             fields.addView(number)
-            fields.addView(label(getString(R.string.navigation_output_test_note), 14, MUTED))
+            fields.addView(label(getString(if (role.input) R.string.vehicle_audio_input_hint else R.string.navigation_output_test_note), 14, MUTED))
             fun selection(): AudioOutputDevice? {
                 val text = number.text.toString().trim()
                 if (text.isEmpty()) return null
                 val id = text.toIntOrNull()
-                val device = AudioOutputDevice.outputs(manager).firstOrNull { it.id == id }
+                val device = (if (role.input) AudioOutputDevice.inputs(manager) else AudioOutputDevice.outputs(manager)).firstOrNull { it.id == id }
                 if (device == null) {
                     number.error = getString(R.string.navigation_output_unavailable)
                     throw IllegalArgumentException("Output device unavailable")
                 }
                 return AudioOutputDevice.from(device)
             }
-            fields.addView(button(getString(R.string.navigation_output_preview), false) {
+            if (!role.input) fields.addView(button(getString(R.string.navigation_output_preview), false) {
                 runCatching { selection() }.onSuccess { output ->
                     val channel = if (output != null) 0 else when (role) {
                         VehicleAudioRole.MEDIA -> AirPlayPersistence.loadMediaAudioChannel(this)

@@ -181,7 +181,18 @@ class CarPlayController(
 
     private val appContext = context.applicationContext
     private val geelyFactory = com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay.load(appContext)
-    private var factoryBluetoothGuard: com.shilapi.xcertplay.vehicle.GeelyBluetoothAudioGuard? = null
+    // carlito | Generic audio ownership follows granted focus; explicit phone handoff remains supported.
+    private var bluetoothAudioOwnership = false
+    private var bluetoothAudioCommand = false
+    fun setBluetoothAudioOwnership(owned: Boolean) {
+        mainHandler.post {
+            if (!closed) {
+                bluetoothAudioOwnership = owned
+                factoryBluetoothGuard?.setSuppressed(geelyFactory != null || owned || bluetoothAudioCommand)
+            }
+        }
+    }
+    private var factoryBluetoothGuard: com.shilapi.xcertplay.vehicle.BluetoothAudioHandoff? = null
     private var factoryBluetoothSession: AirPlaySession? = null
     @Volatile private var wirelessPeerBluetoothAddress: String? = null
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
@@ -312,9 +323,7 @@ class CarPlayController(
                 }
             }
             activeSession = session
-            if (geelyFactory != null) {
-                wirelessPeerBluetoothAddress?.let { configureBluetoothAudioHandoff(session, it) }
-            }
+            wirelessPeerBluetoothAddress?.let { configureBluetoothAudioHandoff(session, it) }
             if (replacement) restoreDashboardContent(session)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -329,6 +338,7 @@ class CarPlayController(
                     factoryBluetoothGuard?.close()
                     factoryBluetoothGuard = null
                     factoryBluetoothSession = null
+                    bluetoothAudioCommand = false
                 }
             }
             if (activeSession === session) {
@@ -395,7 +405,7 @@ class CarPlayController(
                     connectedAddress == null || requestedAddress.equals(connectedAddress, true) -> requestedAddress
                     else -> null
                 }
-                address?.let { configureBluetoothAudioHandoff(session, it) }
+                address?.let { configureBluetoothAudioHandoff(session, it, force = true) }
             }
             debugLog(
                 "AirPlay command type=$type params=${params.keys.sorted().joinToString(",")}",
@@ -2471,21 +2481,29 @@ class CarPlayController(
         buildSet {
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.HEADSET, BluetoothHeadset::class.java))
             addAll(connectedBluetoothDevices(adapter, BluetoothProfile.A2DP, BluetoothA2dp::class.java))
-            if (geelyFactory != null) {
-                addAll(connectedBluetoothDevices(adapter, 11, BluetoothProfile::class.java))
-                addAll(connectedBluetoothDevices(adapter, 16, BluetoothProfile::class.java))
-            }
+            addAll(connectedBluetoothDevices(adapter, 11, BluetoothProfile::class.java))
+            addAll(connectedBluetoothDevices(adapter, 16, BluetoothProfile::class.java))
         }
 
-    private fun configureBluetoothAudioHandoff(session: AirPlaySession, address: String) {
+    private fun configureBluetoothAudioHandoff(session: AirPlaySession, address: String, force: Boolean = false) {
         if (!BluetoothAdapter.checkBluetoothAddress(address.uppercase(Locale.US))) return
         mainHandler.post {
-            if (closed || activeSession !== session || factoryBluetoothSession === session) return@post
+            if (closed || activeSession !== session) return@post
+            if (factoryBluetoothSession === session) {
+                if (force) bluetoothAudioCommand = true
+                factoryBluetoothGuard?.setSuppressed(geelyFactory != null || bluetoothAudioOwnership || bluetoothAudioCommand)
+                return@post
+            }
             val bonded = runCatching { bluetoothAdapter?.bondedDevices?.any { it.address.equals(address, true) } == true }.getOrDefault(false)
             if (!bonded) return@post
-            factoryBluetoothGuard?.close()
+            val previous = factoryBluetoothGuard
+            bluetoothAudioCommand = force
             factoryBluetoothSession = session
-            factoryBluetoothGuard = com.shilapi.xcertplay.vehicle.GeelyBluetoothAudioGuard(appContext, address, ::debugLog).also { it.start() }
+            factoryBluetoothGuard = com.shilapi.xcertplay.vehicle.BluetoothAudioHandoff(appContext, address, ::debugLog).also {
+                it.setSuppressed(geelyFactory != null || bluetoothAudioOwnership || force)
+                it.start()
+            }
+            previous?.close()
         }
     }
 

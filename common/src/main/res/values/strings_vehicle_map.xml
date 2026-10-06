@@ -27,4 +27,9 @@
     <string name="vehicle_map_key_default">Default</string>
     <string name="vehicle_map_bridge_ready">Vehicle button control is ready</string>
     <string name="vehicle_map_bridge_waiting">Vehicle button assignments take effect after connecting your phone</string>
+    <!-- carlito | Independent microphone preferences. -->
+    <string name="vehicle_audio_phone_microphone">Call microphone</string>
+    <string name="vehicle_audio_assistant_microphone">Voice assistant microphone</string>
+    <string name="vehicle_audio_input_summary">%1$s input: %2$s</string>
+    <string name="vehicle_audio_input_hint">Used during calls or voice requests. An unavailable device uses the system microphone.</string>
 </resources>

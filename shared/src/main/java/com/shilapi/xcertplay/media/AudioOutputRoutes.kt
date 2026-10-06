@@ -7,6 +7,8 @@ data class AudioOutputRoutes(
     val phone: AudioOutputDevice? = null,
     val assistant: AudioOutputDevice? = null,
     val ringtone: AudioOutputDevice? = null,
+    val phoneMicrophone: AudioOutputDevice? = null,
+    val assistantMicrophone: AudioOutputDevice? = null,
 ) {
     internal fun device(channel: AudioChannel): AudioOutputDevice? = when (channel) {
         AudioChannel.MEDIA -> media
@@ -15,4 +17,6 @@ data class AudioOutputRoutes(
         AudioChannel.ASSISTANT -> assistant
         AudioChannel.RINGTONE -> ringtone
     }
+    internal fun microphone(audioType: String): AudioOutputDevice? = if (isPhoneAudio(audioType)) phoneMicrophone
+        else assistantMicrophone.takeIf { audioType.equals("speechrecognition", true) }
 }
