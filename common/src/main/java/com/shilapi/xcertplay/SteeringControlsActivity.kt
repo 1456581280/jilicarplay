@@ -41,6 +41,8 @@ class SteeringControlsActivity : ComponentActivity() {
     private lateinit var restoreButton: Button
     private var requestingAccess = false
     private var diagnosticText: TextView? = null
+    // carlito: Privileged hotspot diagnostics belong to the unlocked developer page.
+    private var hotspotJoinControls: HotspotJoinControls? = null
     private val bindingLabels = mutableMapOf<String, TextView>()
     private val identifyButtons = mutableListOf<Button>()
     private var learningOperation: String? = null
@@ -89,6 +91,11 @@ class SteeringControlsActivity : ComponentActivity() {
     override fun onStop() {
         cancelIdentification()
         super.onStop()
+    }
+    // carlito: Cancel developer repair callbacks with this activity's lifetime.
+    override fun onDestroy() {
+        hotspotJoinControls?.close()
+        super.onDestroy()
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("draft", currentDraft().json().toString())
@@ -169,6 +176,10 @@ class SteeringControlsActivity : ComponentActivity() {
         content.addView(restoreButton, params(10))
 
         if (developer) {
+            hotspotJoinControls = HotspotJoinControls(this, { CarPlayBackgroundSession.hasSession() },
+                labelFactory = { label(it, 14f, MUTED) },
+                buttonFactory = { title, click -> button(title) { click() } })
+                .also { content.addView(it.build(), params(24)) }
             content.addView(label(getString(R.string.steering_diagnostics), 20f, bold = true), params(24))
             content.addView(label(getString(R.string.steering_log_permission, packageName), 14f, MUTED), params(8))
             diagnosticText = label("", 14f, MUTED).apply { setTextIsSelectable(true) }
