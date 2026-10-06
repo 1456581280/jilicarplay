@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- carlito | Product language for the visual secondary-display editor. -->
+<resources>
+    <string name="projection_editor">HUD / instrument layout</string>
+    <string name="projection_three_finger">Three-finger navigation projection</string>
+    <string name="projection_three_finger_hint">Swipe up with three fingers in CarPlay to show or hide navigation on the selected screen. Swipe down to open settings.</string>
+    <string name="projection_no_guidance">Start navigation on your iPhone first.</string>
+    <string name="projection_permission_required">Allow display over other apps in system settings first.</string>
+    <string name="projection_select_display">Select a projection screen in DiPlay settings first.</string>
+    <string name="projection_add_navigation">Add navigation to the projection layout first.</string>
+    <string name="projection_open_failed">Could not open the selected screen. Please check its availability.</string>
+    <string name="projection_navigation_hidden">Navigation projection hidden</string>
+    <string name="projection_navigation_shown">Navigation projection shown</string>
+    <string name="projection_editor_hint">Drag an item to move it, or enter its position and size below.</string>
+    <string name="projection_navigation">Navigation</string>
+    <string name="projection_speed">Speed</string>
+    <string name="projection_rpm">Engine speed</string>
+    <string name="projection_left_indicator">Left indicator</string>
+    <string name="projection_right_indicator">Right indicator</string>
+    <string name="projection_high_beam">High beam</string>
+    <string name="projection_low_beam">Low beam</string>
+    <string name="projection_clock">Time</string>
+    <string name="projection_on">On</string>
+    <string name="projection_off">Off</string>
+    <string name="projection_x">Horizontal position (%)</string>
+    <string name="projection_y">Vertical position (%)</string>
+    <string name="projection_width">Width (%)</string>
+    <string name="projection_height">Height (%)</string>
+    <string name="projection_visible">Show this item</string>
+    <string name="projection_values_hint">Unavailable vehicle data appears as a dash. Speed and engine speed require calibrated units.</string>
+    <string name="projection_apply_geometry">Apply position and size</string>
+    <string name="projection_add">Add item</string>
+    <string name="projection_remove">Remove selected item</string>
+    <string name="projection_restore">Restore navigation layout</string>
+    <string name="projection_save">Save and apply</string>
+    <string name="projection_save_failed">Could not save the layout. Please try again.</string>
+    <string name="projection_geometry_invalid">Enter valid percentages. Width and height must be 8–100%, and the item must fit within the screen.</string>
+</resources>

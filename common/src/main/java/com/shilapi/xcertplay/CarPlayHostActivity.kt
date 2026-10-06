@@ -422,6 +422,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var reconnectScheduled = false
     private var sessionLog: SessionLogFile? = null
     private var gestureFingerCount = 3
+    // carlito | The navigation gesture may have a different count from the settings gesture.
+    private var gestureActiveFingerCount = 3
+    private var navigationGestureUsed = false
     private var settingsGestureHint: TextView? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
@@ -4510,11 +4513,14 @@ class CarPlayHostActivity : ComponentActivity() {
             MotionEvent.ACTION_DOWN -> {
                 gestureSequenceActive = false
                 gestureTracking = false
+                navigationGestureUsed = false
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (event.pointerCount == gestureFingerCount && !gestureSequenceActive) {
+                val navigationGesture = !navigationGestureUsed && event.pointerCount == 3 && GeelyHudProjection.threeFingerEnabled(this)
+                if (navigationGesture || event.pointerCount == gestureFingerCount && !gestureSequenceActive) {
                     gestureSequenceActive = true
                     gestureTracking = true
+                    gestureActiveFingerCount = event.pointerCount
                     gestureStartX = pointerCentroid(event, horizontal = true)
                     gestureStartY = pointerCentroid(event, horizontal = false)
                     controller?.sendTouch(emptyList())
@@ -4525,10 +4531,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
         if (gestureSequenceActive) {
-            if (event.actionMasked == MotionEvent.ACTION_POINTER_UP || event.pointerCount != gestureFingerCount) {
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_UP || event.pointerCount != gestureActiveFingerCount) {
                 gestureTracking = false
             }
-            if (!gestureTracking || event.pointerCount != gestureFingerCount) {
+            if (!gestureTracking || event.pointerCount != gestureActiveFingerCount) {
                 if (event.actionMasked == MotionEvent.ACTION_UP ||
                     event.actionMasked == MotionEvent.ACTION_CANCEL
                 ) {
@@ -4542,6 +4548,14 @@ class CarPlayHostActivity : ComponentActivity() {
             if (event.actionMasked == MotionEvent.ACTION_MOVE) {
                 val deltaX = Math.abs(pointerCentroid(event, horizontal = true) - gestureStartX)
                 val deltaY = pointerCentroid(event, horizontal = false) - gestureStartY
+                if (gestureActiveFingerCount == 3 && GeelyHudProjection.threeFingerEnabled(this) &&
+                    deltaY <= -dp(SETTINGS_SWIPE_DISTANCE_DP) && -deltaY >= deltaX * SETTINGS_SWIPE_DIRECTION_RATIO) {
+                    // Keep consuming until every finger lifts, avoiding a partial iPhone touch sequence.
+                    gestureTracking = false
+                    navigationGestureUsed = true
+                    android.widget.Toast.makeText(this, GeelyHudProjection.flyNavigation(this), android.widget.Toast.LENGTH_SHORT).show()
+                    return true
+                }
                 if (
                     deltaY >= dp(SETTINGS_SWIPE_DISTANCE_DP) &&
                     deltaY >= deltaX * SETTINGS_SWIPE_DIRECTION_RATIO

@@ -770,6 +770,12 @@ class DiPlayActivity : ComponentActivity() {
                 hudScales.indexOf(hudScale).coerceAtLeast(0),
                 reconnects = false,
             ) { index -> GeelyHudProjection.setScale(this, hudScales[index]) }
+            // carlito | Same layout serves the selected HUD or instrument display.
+            card.addView(button(getString(R.string.projection_editor), false) {
+                startActivity(Intent(this, GeelyProjectionEditorActivity::class.java))
+            }, matchButton(12, 56))
+            toggle(card, getString(R.string.projection_three_finger), getString(R.string.projection_three_finger_hint),
+                GeelyHudProjection.threeFingerEnabled(this)) { GeelyHudProjection.setThreeFingerEnabled(this, it) }
             toggle(
                 card,
                 getString(R.string.geely_steering_wheel),

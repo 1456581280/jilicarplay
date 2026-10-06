@@ -29,6 +29,10 @@
         </intent>
     </queries>
     <application>
+        <!-- carlito | Local draft editor; not exposed to other applications. -->
+        <activity android:name="com.shilapi.xcertplay.GeelyProjectionEditorActivity"
+            android:exported="false" android:resizeableActivity="true"
+            android:theme="@style/Theme.Xcertplay" android:windowSoftInputMode="adjustResize" />
         <activity android:name="com.shilapi.xcertplay.SteeringControlsActivity"
             android:exported="false" android:theme="@style/Theme.Xcertplay"
             android:windowSoftInputMode="adjustResize" />

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- carlito | 投屏布局编辑器。 -->
+<resources>
+    <string name="projection_editor">HUD / 仪表布局</string>
+    <string name="projection_three_finger">导航三指飞屏</string>
+    <string name="projection_three_finger_hint">在 CarPlay 内三指上滑，可显示或收起选定屏幕上的导航；下滑仍打开设置。</string>
+    <string name="projection_no_guidance">请先在手机上开启导航。</string>
+    <string name="projection_permission_required">请先在系统设置中允许悬浮显示。</string>
+    <string name="projection_select_display">请先在 DiPlay 设置中选择投屏显示屏。</string>
+    <string name="projection_add_navigation">请先在投屏布局中添加导航内容。</string>
+    <string name="projection_open_failed">暂时无法打开选定屏幕，请确认显示屏可用。</string>
+    <string name="projection_navigation_hidden">已收起导航投屏</string>
+    <string name="projection_navigation_shown">已显示导航投屏</string>
+    <string name="projection_editor_hint">拖动内容调整位置，也可在下方填写位置和尺寸。</string>
+    <string name="projection_navigation">导航</string>
+    <string name="projection_speed">车速</string>
+    <string name="projection_rpm">发动机转速</string>
+    <string name="projection_left_indicator">左转向灯</string>
+    <string name="projection_right_indicator">右转向灯</string>
+    <string name="projection_high_beam">远光灯</string>
+    <string name="projection_low_beam">近光灯</string>
+    <string name="projection_clock">时间</string>
+    <string name="projection_on">开</string>
+    <string name="projection_off">关</string>
+    <string name="projection_x">水平位置（%）</string>
+    <string name="projection_y">垂直位置（%）</string>
+    <string name="projection_width">宽度（%）</string>
+    <string name="projection_height">高度（%）</string>
+    <string name="projection_visible">显示此内容</string>
+    <string name="projection_values_hint">未收到车辆数据时显示横线。车速和转速需要先校准单位。</string>
+    <string name="projection_apply_geometry">应用位置和尺寸</string>
+    <string name="projection_add">添加内容</string>
+    <string name="projection_remove">移除选中内容</string>
+    <string name="projection_restore">恢复导航布局</string>
+    <string name="projection_save">保存并应用</string>
+    <string name="projection_save_failed">布局未能保存，请重试。</string>
+    <string name="projection_geometry_invalid">请填写有效百分比。宽高须为 8–100%，内容不能超出屏幕。</string>
+</resources>

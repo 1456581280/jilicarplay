@@ -1,3 +1,4 @@
+// carlito | Navigation and calibrated vehicle cards share one secondary-display window.
 package com.shilapi.xcertplay
 
 import android.app.Activity
@@ -39,20 +40,31 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
     private var activityRef: WeakReference<Activity>? = null
     private var displayManager: DisplayManager? = null
     private var windowManager: WindowManager? = null
-    private var hudView: GeelyHudGuidanceView? = null
+    private var hudView: GeelyProjectionView? = null
+    private var vehicleReader: ProjectionVehicleReader? = null
+    private var vehicleFrame = ProjectionVehicleFrame()
+    private var windowStage = "IDLE"
+    private val refreshValues = object : Runnable {
+        override fun run() {
+            hudView?.invalidate()
+            if (hudView != null) mainHandler.postDelayed(this, 1_000L)
+        }
+    }
     private var attachedDisplayId = Display.INVALID_DISPLAY
     private var attachedWidth = 0
     private var attachedHeight = 0
     private var guidance: CarPlayHudGuidance? = null
+    private var navigationHidden = false
     private val expireGuidance = Runnable {
         guidance = null
-        detachWindow()
+        refresh()
     }
 
     fun attach(activity: Activity) {
         mainHandler.post {
             if (activityRef?.get() !== activity) {
                 detachWindow()
+                stopVehicleReader()
                 displayManager?.unregisterDisplayListener(this)
                 activityRef = WeakReference(activity)
                 displayManager = activity.getSystemService(DisplayManager::class.java)
@@ -66,6 +78,10 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         mainHandler.post {
             if (activityRef?.get() !== activity) return@post
             detachWindow()
+            stopVehicleReader()
+            mainHandler.removeCallbacks(expireGuidance)
+            guidance = null
+            navigationHidden = false
             displayManager?.unregisterDisplayListener(this)
             displayManager = null
             activityRef = null
@@ -93,7 +109,7 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
                 )
             }.onFailure { Log.w(TAG, "Could not open HUD display permission settings", it) }
         }
-        mainHandler.post(::refresh)
+        mainHandler.post { if (enabled) navigationHidden = false; refresh() }
     }
 
     fun availableDisplays(context: Context): List<GeelyHudDisplay> =
@@ -129,6 +145,39 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         }
     }
 
+    fun applyLayout() = mainHandler.post(::refresh)
+    fun currentGuidance(): CarPlayHudGuidance? = guidance
+    fun currentVehicleFrame(): ProjectionVehicleFrame = vehicleFrame
+
+    fun threeFingerEnabled(context: Context) = context.getSharedPreferences("geely_projection_layout", Context.MODE_PRIVATE)
+        .getBoolean("three_finger_navigation", false)
+    fun setThreeFingerEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("geely_projection_layout", Context.MODE_PRIVATE).edit()
+            .putBoolean("three_finger_navigation", enabled).apply()
+    }
+
+    /** carlito | Switch only the guidance element; vehicle cards keep their own visibility. */
+    fun flyNavigation(activity: Activity): Int {
+        if (guidance == null) return com.shilapi.xcertplay.host.R.string.projection_no_guidance
+        if (!Settings.canDrawOverlays(activity)) return com.shilapi.xcertplay.host.R.string.projection_permission_required
+        val displays = availableDisplays(activity)
+        val id = AirPlayPersistence.loadGeelyHudDisplayId(activity)
+        val name = AirPlayPersistence.loadGeelyHudDisplayName(activity)
+        val selected = if (id != Display.INVALID_DISPLAY || name != null) {
+            displays.firstOrNull { it.id == id && (name == null || it.name == name) }
+                ?: name?.let { value -> displays.filter { it.name == value }.singleOrNull() }
+        } else displays.filter { it.name.contains("hud", true) }.singleOrNull()
+        if (selected == null) return com.shilapi.xcertplay.host.R.string.projection_select_display
+        if (GeelyProjectionLayout.load(activity).none { it.field == ProjectionField.NAVIGATION && it.visible })
+            return com.shilapi.xcertplay.host.R.string.projection_add_navigation
+        navigationHidden = AirPlayPersistence.loadGeelyHudEnabled(activity) && !navigationHidden
+        if (!navigationHidden) AirPlayPersistence.saveGeelyHudEnabled(activity, true)
+        refresh()
+        return if (windowStage.startsWith("WINDOW_REJECTED")) com.shilapi.xcertplay.host.R.string.projection_open_failed
+            else if (navigationHidden) com.shilapi.xcertplay.host.R.string.projection_navigation_hidden
+            else com.shilapi.xcertplay.host.R.string.projection_navigation_shown
+    }
+
     fun diagnosticReport(context: Context): String {
         val selectedId = AirPlayPersistence.loadGeelyHudDisplayId(context)
         val selectedName = AirPlayPersistence.loadGeelyHudDisplayName(context).orEmpty()
@@ -139,6 +188,7 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
             append("selectedId=$selectedId selectedName=${selectedName.ifBlank { "automatic" }} ")
             append("scale=${AirPlayPersistence.loadGeelyHudScalePercent(context)}% ")
             append("attachedId=$attachedDisplayId attachedSize=${attachedWidth}x$attachedHeight")
+            append(" stage=$windowStage vehicle=${vehicleReader?.stage ?: "IDLE"}")
             appendLine()
             append("availableDisplays=")
             if (displays.isEmpty()) append("none") else append(
@@ -155,12 +205,25 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         val activity = activityRef?.get()
         if (activity == null || activity.isFinishing || activity.isDestroyed) {
             detachWindow()
+            stopVehicleReader()
             return
         }
-        if (!AirPlayPersistence.loadGeelyHudEnabled(activity) ||
-            guidance == null ||
-            !Settings.canDrawOverlays(activity)
-        ) {
+        if (!AirPlayPersistence.loadGeelyHudEnabled(activity)) {
+            windowStage = "DISABLED"
+            detachWindow()
+            stopVehicleReader()
+            return
+        }
+        val elements = GeelyProjectionLayout.load(activity)
+        val visible = elements.filter { it.visible && !(navigationHidden && it.field == ProjectionField.NAVIGATION) }
+        if (visible.any { it.field.property != null }) {
+            if (vehicleReader == null) vehicleReader = ProjectionVehicleReader(activity) { value ->
+                vehicleFrame = value; hudView?.vehicle = value
+            }
+        } else stopVehicleReader()
+        if (!Settings.canDrawOverlays(activity) || visible.isEmpty() ||
+            guidance == null && visible.all { it.field == ProjectionField.NAVIGATION }) {
+            windowStage = if (!Settings.canDrawOverlays(activity)) "OVERLAY_PERMISSION_REQUIRED" else "WAITING_FOR_CONTENT"
             detachWindow()
             return
         }
@@ -171,12 +234,13 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         val savedName = AirPlayPersistence.loadGeelyHudDisplayName(activity)
         val display = if (savedId != Display.INVALID_DISPLAY || savedName != null) {
             displays.firstOrNull { it.displayId == savedId && (savedName == null || it.name == savedName) }
-                ?: savedName?.let { name -> displays.firstOrNull { it.name == name } }
+                ?: savedName?.let { name -> displays.filter { it.name == name }.singleOrNull() }
         } else {
-            displays.firstOrNull { it.name.contains("hud", ignoreCase = true) }
-                ?: displays.singleOrNull()
+            // carlito | Ambiguous/rear/cluster screens require an explicit user selection.
+            displays.filter { it.name.contains("hud", ignoreCase = true) }.singleOrNull()
         }
         if (display == null) {
+            windowStage = "DISPLAY_SELECTION_REQUIRED"
             detachWindow()
             return
         }
@@ -187,10 +251,7 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         ) {
             detachWindow()
             val manager = displayContext.getSystemService(WindowManager::class.java) ?: return
-            val view = GeelyHudGuidanceView(
-                displayContext,
-                AirPlayPersistence.loadGeelyHudScalePercent(activity),
-            )
+            val view = GeelyProjectionView(displayContext)
             val params = WindowManager.LayoutParams(
                 displayWidth,
                 displayHeight,
@@ -212,12 +273,21 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
                 attachedWidth = displayWidth
                 attachedHeight = displayHeight
             } catch (error: RuntimeException) {
+                windowStage = "WINDOW_REJECTED:${error.javaClass.simpleName}"
                 Log.w(TAG, "Could not open the HUD display", error)
                 runCatching { manager.removeViewImmediate(view) }
                 return
             }
         }
-        hudView?.guidance = guidance
+        hudView?.apply {
+            this.elements = visible
+            this.scalePercent = AirPlayPersistence.loadGeelyHudScalePercent(activity)
+            this.guidance = GeelyHudProjection.guidance
+            this.vehicle = vehicleFrame
+        }
+        windowStage = "ACTIVE"
+        mainHandler.removeCallbacks(refreshValues)
+        mainHandler.postDelayed(refreshValues, 1_000L)
     }
 
     private fun displaySize(context: Context, display: Display): Pair<Int, Int> {
@@ -227,6 +297,7 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
     }
 
     private fun detachWindow() {
+        mainHandler.removeCallbacks(refreshValues)
         val current = hudView
         hudView = null
         runCatching { current?.let { windowManager?.removeViewImmediate(it) } }
@@ -235,9 +306,15 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
         attachedWidth = 0
         attachedHeight = 0
     }
+
+    private fun stopVehicleReader() {
+        vehicleReader?.close(); vehicleReader = null
+        vehicleFrame = ProjectionVehicleFrame()
+        hudView?.vehicle = vehicleFrame
+    }
 }
 
-private class GeelyHudGuidanceView(context: Context, initialScalePercent: Int) : View(context) {
+internal class GeelyHudGuidanceView(context: Context, initialScalePercent: Int) : View(context) {
     var scalePercent = initialScalePercent
         set(value) {
             field = value
