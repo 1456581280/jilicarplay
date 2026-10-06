@@ -1220,6 +1220,8 @@ class CarPlayController(
                     }
                 },
                 log = { debugLog("wireless startup generation=$generation listener=${listenerIdentity.id} $it") },
+                // carlito: Wireless startup explicitly owns the additional protocol deadline.
+                protocolTimeoutMillis = WirelessStartupPolicy.FIRST_TCP_MILLIS,
             )
             firstTcpWatchdog = watchdog
             val mfi = mfiSession?.client

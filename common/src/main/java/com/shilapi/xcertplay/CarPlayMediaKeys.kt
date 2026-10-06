@@ -536,6 +536,10 @@ internal class CarPlayMediaCallback(
 ) : MediaSession.Callback() {
     constructor(send: (index: Int, source: String) -> Unit) : this(send, { false }, { false })
 
+    // carlito: Preserve upstream's named opt-in with a trailing send callback.
+    constructor(experimentalDiLink3Keys: () -> Boolean, send: (index: Int, source: String) -> Unit) :
+        this(send = send, consumesKey = { false }, experimentalDiLink3Keys = experimentalDiLink3Keys)
+
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false

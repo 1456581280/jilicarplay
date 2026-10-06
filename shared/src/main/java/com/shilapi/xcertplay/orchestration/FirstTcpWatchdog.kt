@@ -11,6 +11,8 @@ internal class FirstTcpWatchdog(
     private val nowNanos: () -> Long = System::nanoTime,
     private val timeoutMillis: Long = WirelessStartupPolicy.FIRST_TCP_MILLIS,
     private val log: (String) -> Unit = {},
+    // carlito: The original first-TCP contract remains independent of protocol readiness.
+    private val protocolTimeoutMillis: Long? = null,
 ) {
     @Volatile var terminated = false
         private set
@@ -37,7 +39,7 @@ internal class FirstTcpWatchdog(
             log("first TCP atNs=${event.acceptedAtNanos}")
             // carlito: An open TCP port is not proof that the CarPlay protocol became ready.
             cancel()
-            if (!success) cancelTimer = schedule(timeoutMillis, ::expireProtocol)
+            if (!success) protocolTimeoutMillis?.let { cancelTimer = schedule(it, ::expireProtocol) }
         }
         return true
     }
