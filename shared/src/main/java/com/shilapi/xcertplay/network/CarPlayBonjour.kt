@@ -145,8 +145,11 @@ class CarPlayBonjour(
     private val onDiagnostic: (String) -> Unit = {},
 ) : Closeable {
     private val appContext = context.applicationContext ?: context
-    private val nsdManager = (context.applicationContext ?: context)
-        .getSystemService(Context.NSD_SERVICE) as NsdManager
+    // Interface-bound mDNS does not need Android's NSD service, which may be absent on some head units.
+    private val nsdManager: NsdManager by lazy {
+        appContext.getSystemService(Context.NSD_SERVICE) as? NsdManager
+            ?: throw IOException("Android NSD service is unavailable")
+    }
     private val services = LinkedBlockingQueue<NsdServiceInfo>()
     // carlito: A discovery belongs to a source interface, not merely an address family.
     private data class InterfaceService(val endpoint: CarPlayBonjourEndpoint, val peer: InetAddress,
