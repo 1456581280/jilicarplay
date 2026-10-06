@@ -1,7 +1,6 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
-import android.os.Build
 import android.os.Looper
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
@@ -136,10 +135,9 @@ class AutomaticHotspotManager(
             LocalOnlyHotspotManager(appContext, onDiagnostic)
         }
         val generated = mutableListOf(local)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            generated += Attempt(WirelessHotspotBackend.WIFI_P2P, WIFI_P2P_MILLIS) {
-                WifiP2pGroupManager(appContext, onDiagnostic, wifiP2pPreferredChannel)
-            }
+        // carlito: Upstream provides a public Android 9 group creation path as well.
+        generated += Attempt(WirelessHotspotBackend.WIFI_P2P, WIFI_P2P_MILLIS) {
+            WifiP2pGroupManager(appContext, onDiagnostic, wifiP2pPreferredChannel)
         }
         val remembered = preferences.getString(KEY_LAST_BACKEND, null)
             ?.let { name -> WirelessHotspotBackend.entries.firstOrNull { it.name == name } }
