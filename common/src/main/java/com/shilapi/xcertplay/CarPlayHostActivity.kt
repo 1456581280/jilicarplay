@@ -997,7 +997,8 @@ class CarPlayHostActivity : ComponentActivity() {
         override fun onDisplayChanged(displayId: Int) = Unit
     }
 
-    private fun clusterDisplayConfig(): AirPlayDisplayConfig? {
+    // carlito: Validate the cluster canvas with the codec actually selected for this session.
+    private fun clusterDisplayConfig(useHevc: Boolean): AirPlayDisplayConfig? {
         adbClusterConfigured = false
         clusterStreamOnDisplay = false
         if (!AirPlayPersistence.loadClusterMapEnabled(this)) return null
@@ -1046,11 +1047,11 @@ class CarPlayHostActivity : ComponentActivity() {
                 // The smaller-map preset enlarges the encoded canvas beyond this panel. Probe
                 // the same selected hardware decoder as the main-screen enlargement guard.
                 val effective = if (requestedScale > 100) {
-                    val support = largerCanvasSupport(requested)
+                    val support = largerCanvasSupport(requested, useHevc)
                     appendLog("Cluster map: ${support.details}")
                     if (support.supported) requested else {
                         val native = streamAt(100)
-                        val fallback = if (largerCanvasSupport(native).supported) 100
+                        val fallback = if (largerCanvasSupport(native, useHevc).supported) 100
                             else CarPlayClusterDisplay.STREAM_SCALE_PERCENT
                         AirPlayPersistence.saveClusterMapScalePercent(this, fallback)
                         appendLog("Cluster map: scale $requestedScale% refused (${support.reason}); using $fallback%")
@@ -3477,7 +3478,7 @@ class CarPlayHostActivity : ComponentActivity() {
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
             main = declared,
-            cluster = clusterDisplayConfig(),
+            cluster = clusterDisplayConfig(effectiveHevc),
             rightHandDrive = rightHandDrive,
             hevc = effectiveHevc,
             opusOutputSupported = supportsOpusOutput(),
