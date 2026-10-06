@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.Looper
 import android.view.KeyEvent
 import android.widget.Button
+import com.shilapi.xcertplay.hud.BydOutputSettings
 import java.time.Duration
 import org.junit.After
 import org.junit.Assert.*
@@ -204,5 +205,28 @@ class WheelKeyServiceTest {
         assertEquals(1, learned)
         assertEquals(KeyEvent.KEYCODE_F4, WheelZoomSettings.key(service, WheelZoomSettings.Role.MODE).code)
         assertTrue(knobs.isEmpty())
+    }
+
+    @Test fun experimentalVoiceKeysRemainWithTheCarUntilOptIn() {
+        service.session = { "active-phone" }
+        BydOutputSettings.setCarPlayCallControls(service, false)
+        assertEquals(false to false, press(327))
+        assertEquals(false to false, press(328))
+        BydOutputSettings.setCarPlayCallControls(service, true)
+        assertEquals(true to true, press(327))
+        assertEquals(true to true, press(328))
+        BydOutputSettings.setCarPlayCallControls(service, false)
+        assertEquals(false to false, press(327))
+    }
+
+    @Test
+    fun theAllowedListKeepsOtherServicesAndRebindsAListedButStoppedService() {
+        val ours = "com.shihab.diplay/com.shilapi.xcertplay.WheelKeyService"
+        val car = "com.byd.airconditioning/.gesture.AcGestureService:com.android.systemui/.custom.StatusBarAccessibilityService"
+        assertEquals(null to "$car:$ours", WheelKeyService.allowedServices("$car\n", ours))
+        assertEquals(car to "$car:$ours", WheelKeyService.allowedServices("$ours:$car", ours))
+        assertEquals("" to ours, WheelKeyService.allowedServices(ours, ours))
+        for (empty in listOf("", "null", " \n")) assertEquals(null to ours, WheelKeyService.allowedServices(empty, ours))
+        assertNull(WheelKeyService.allowedServices(null, ours))
     }
 }
