@@ -143,6 +143,8 @@ class CarPlayBonjour(
     private val onEvent: (CarPlayBonjourEvent) -> Unit = {},
     additionalAddresses: List<InetAddress> = emptyList(),
     private val onDiagnostic: (String) -> Unit = {},
+    // carlito: Existing callers retain atomic startup; the enhanced route opts into partial links.
+    private val allowPartialInterfacePublication: Boolean = false,
 ) : Closeable {
     private val appContext = context.applicationContext ?: context
     // Interface-bound mDNS does not need Android's NSD service, which may be absent on some head units.
@@ -290,6 +292,7 @@ class CarPlayBonjour(
                     }
                     // A JmDNS instance joins only its address family's multicast group.
                     advertisedAddresses.forEach(::addInterface)
+                    if (interfaceMdns.isEmpty()) throw IOException("No multicast interface could be published")
                     publishedFamilies = interfaceMdns.joinToString(",") {
                         if (it.inetAddress is Inet4Address) "IPv4" else "IPv6"
                     }
@@ -343,6 +346,7 @@ class CarPlayBonjour(
             runCatching { dns?.close() }
             onDiagnostic("LOCAL_NETWORK publication ${WirelessNetworkPaths.describe(address)} " +
                 "port=${config.port} result=failed failure=${error.javaClass.simpleName}")
+            if (!allowPartialInterfacePublication) throw error
         }
     }
 
@@ -567,7 +571,10 @@ class CarPlayBonjour(
             ?: addresses.firstOrNull()
     }
 
-    private fun applyLocalScope(address: InetAddress, source: InetAddress? = null): InetAddress {
+    // carlito: Retain the single-address entry used by system discovery.
+    private fun applyLocalScope(address: InetAddress): InetAddress = applyLocalScope(address, null)
+
+    private fun applyLocalScope(address: InetAddress, source: InetAddress?): InetAddress {
         val scope = (source as? Inet6Address)?.scopeId ?: advertisedAddresses.filterIsInstance<Inet6Address>()
             .firstOrNull { it.scopeId != 0 }?.scopeId ?: return address
         if (address !is Inet6Address || !address.isLinkLocalAddress || scope == 0) return address

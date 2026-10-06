@@ -1349,6 +1349,7 @@ class CarPlayController(
                 onEvent = { event -> debugLog("wireless bonjour: ${event.diagnosticSummary()}") },
                 additionalAddresses = listenerAddresses.filter { it != hostAddress },
                 onDiagnostic = ::debugLog,
+                allowPartialInterfacePublication = true,
             )
             synchronized(wirelessResourceLock) {
                 if (isStaleWirelessRun(generation)) return

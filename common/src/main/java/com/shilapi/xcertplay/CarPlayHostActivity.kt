@@ -1004,6 +1004,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     // carlito: Validate the cluster canvas with the codec actually selected for this session.
+    private fun clusterDisplayConfig(): AirPlayDisplayConfig? = clusterDisplayConfig(hevcEnabled)
+
     private fun clusterDisplayConfig(useHevc: Boolean): AirPlayDisplayConfig? {
         adbClusterConfigured = false
         clusterStreamOnDisplay = false
