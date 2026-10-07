@@ -180,10 +180,15 @@ class SteeringControlsActivity : ComponentActivity() {
                 labelFactory = { label(it, 14f, MUTED) },
                 buttonFactory = { title, click -> button(title) { click() } })
                 .also { content.addView(it.build(), params(24)) }
+        }
+        // carlito | Expose wheel test status without exposing unrelated repair controls.
+        if (developer || intent.getBooleanExtra("wheelTest", false)) {
             content.addView(label(getString(R.string.steering_diagnostics), 20f, bold = true), params(24))
-            content.addView(label(getString(R.string.steering_log_permission, packageName), 14f, MUTED), params(8))
             diagnosticText = label("", 14f, MUTED).apply { setTextIsSelectable(true) }
             content.addView(diagnosticText, params(12))
+        }
+        if (developer) {
+            content.addView(label(getString(R.string.steering_log_permission, packageName), 14f, MUTED), params(8))
             content.addView(button(getString(R.string.steering_log_match)) {
                 AlertDialog.Builder(this).setTitle(R.string.steering_log_match)
                     .setItems(SteeringBinding.operations.map(::operationName).toTypedArray()) { _, index ->

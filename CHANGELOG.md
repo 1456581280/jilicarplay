@@ -4,6 +4,9 @@
 - Apply the saved top status-bar switch immediately on the home/settings screen and restore it on resume or window focus.
 - Keep signing and Android 9 compatibility; in-car behavior remains to be confirmed.
 
+- Prefer available XUI on FX11_LOW and report OneOS ownership only after physical callbacks; pair with GD bridge 0.11.24.
+- Expose wheel testing and vehicle property scanning in normal settings.
+
 # DiPlay 0.2.13.1 — 2026-10-07
 
 - Coordinate Bluetooth music with CarPlay ownership and restore app-disconnected music connections when possible.

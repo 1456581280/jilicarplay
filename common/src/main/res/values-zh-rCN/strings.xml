@@ -772,5 +772,5 @@
     <string name="car_button_saved_next_connection">已保存。CarPlay 将在下次连接时显示新的图标和名称。</string>
     <string name="this_head_unit_has_no_image_picker">此车机没有图片选择器。</string>
     <!-- carlito | GD vehicle probe integration. -->
-    <string name="vehicle_probe">车辆扫描</string>
+    <string name="vehicle_probe">车辅属性扫描</string>
 </resources>

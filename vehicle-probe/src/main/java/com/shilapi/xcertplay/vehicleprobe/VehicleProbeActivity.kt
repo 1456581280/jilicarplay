@@ -66,9 +66,8 @@ class VehicleProbeActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Entry is provided only by DiPlay's version-unlocked developer page; activity is private.
-        if (!intent.getBooleanExtra("developer", false)) { finish(); return }
-        developerUnlocked = true
+        // carlito | Scanning is public in settings; only additional diagnostics require unlock.
+        developerUnlocked = intent.getBooleanExtra("developer", false)
         pickingExport = savedInstanceState?.getBoolean("exporting") ?: false
         exporting = pickingExport
         showHome()
@@ -373,7 +372,7 @@ class VehicleProbeActivity : Activity() {
     }
 
     private fun showProfileEditor(bindings: List<VehiclePropertyBinding>, model: String) {
-        if (!developerUnlocked) return
+        // carlito | Normal scan users can calibrate and save the profile shown in this panel.
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(16))

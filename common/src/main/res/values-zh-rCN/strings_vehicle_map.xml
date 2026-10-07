@@ -32,4 +32,5 @@
     <string name="vehicle_audio_assistant_microphone">语音助手麦克风</string>
     <string name="vehicle_audio_input_summary">%1$s输入：%2$s</string>
     <string name="vehicle_audio_input_hint">在通话或语音请求时使用；设备不可用时使用系统麦克风。</string>
+    <string name="steering_test">方控测试</string>
 </resources>

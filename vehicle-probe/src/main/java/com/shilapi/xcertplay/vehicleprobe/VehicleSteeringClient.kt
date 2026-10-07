@@ -52,6 +52,7 @@ class VehicleSteeringClient(context: Context, private val onEvent: (Bundle) -> U
             // The authenticated bridge can confirm consumption in the callback before the next poll.
             if (raw !in held && !event.getBoolean("intercepted")) return
             if (event.getBoolean("intercepted")) state = Bundle(status).apply {
+                putLong("observedEvents", maxOf(1L, status.getLong("observedEvents")))
                 putIntArray("interceptedRawKeys", (held + raw).distinct().toIntArray())
                 val confirmed = ((getIntArray("interceptedKeys") ?: intArrayOf()) + key).distinct().toIntArray()
                 putIntArray("interceptedKeys", confirmed)
@@ -89,10 +90,12 @@ class VehicleSteeringClient(context: Context, private val onEvent: (Bundle) -> U
     }
 
     fun status(): Bundle = Bundle(state)
-    fun ready(): Boolean = !closed && state.getBoolean("ready")
-    fun ownsRawKey(keyCode: Int): Boolean = !closed && request.intercept &&
+    // carlito | Older bridges may acknowledge registration before receiving any physical key.
+    fun ready(): Boolean = !closed && state.getBoolean("ready") &&
+        (!request.intercept || state.getLong("observedEvents") > 0)
+    fun ownsRawKey(keyCode: Int): Boolean = ready() && request.intercept &&
         keyCode in (state.getIntArray("interceptedRawKeys") ?: intArrayOf())
-    fun ownsCanonicalKey(keyCode: Int): Boolean = !closed && request.intercept &&
+    fun ownsCanonicalKey(keyCode: Int): Boolean = ready() && request.intercept &&
         keyCode in (state.getIntArray("interceptedKeys") ?: intArrayOf())
     fun diagnostics(): String = state.let {
         "vehicleBridge stage=${it.getString("stage")} platform=${it.getString("platform")} " +

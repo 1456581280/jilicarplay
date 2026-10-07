@@ -822,6 +822,17 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.steering_identify), false) {
                 startActivity(Intent(this, SteeringControlsActivity::class.java))
             }, matchButton(12, 60))
+            // carlito | Physical wheel testing is a normal settings action.
+            card.addView(button(getString(R.string.steering_test), false) {
+                startActivity(Intent(this, SteeringControlsActivity::class.java).putExtra("wheelTest", true))
+            }, matchButton(10, 60))
+        }
+        // carlito | Read-only vehicle scanning is available without developer unlock.
+        section(content, getString(R.string.vehicle_probe), R.drawable.ic_dp_car) { card ->
+            card.addView(button(getString(R.string.vehicle_probe), false) {
+                startActivity(Intent(this, com.shilapi.xcertplay.vehicleprobe.VehicleProbeActivity::class.java)
+                    .putExtra("developer", SteeringProfiles.developerUnlocked(this)))
+            }, matchButton(0, 60))
         }
         // Cluster video does not require a BYD navigation broadcast receiver.
         section(content, getString(R.string.carplay_map_on_instrument_cluster_experimental), R.drawable.ic_dp_dashboard) { card ->
@@ -1059,11 +1070,6 @@ class DiPlayActivity : ComponentActivity() {
             }, matchButton(12, 56))
             if (SteeringProfiles.developerUnlocked(this)) card.addView(button(getString(R.string.steering_diagnostics), false) {
                 startActivity(Intent(this, SteeringControlsActivity::class.java).putExtra("developer", true))
-            }, matchButton(10, 56))
-            // carlito | Private entry for the GD vehicle probe integration.
-            if (SteeringProfiles.developerUnlocked(this)) card.addView(button(getString(R.string.vehicle_probe), false) {
-                startActivity(Intent(this, com.shilapi.xcertplay.vehicleprobe.VehicleProbeActivity::class.java)
-                    .putExtra("developer", true))
             }, matchButton(10, 56))
         }
         section(content, getString(R.string.made_possible_by_open_source)) { card ->

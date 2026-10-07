@@ -772,5 +772,5 @@
     <string name="car_button_saved_next_connection">Saved. CarPlay shows the new icon and name the next time it connects.</string>
     <string name="this_head_unit_has_no_image_picker">This head unit has no image picker.</string>
     <!-- carlito | GD vehicle probe integration. -->
-    <string name="vehicle_probe">Vehicle scan</string>
+    <string name="vehicle_probe">Vehicle property scan</string>
 </resources>

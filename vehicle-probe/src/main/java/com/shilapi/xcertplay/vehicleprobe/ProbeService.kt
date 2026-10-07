@@ -64,7 +64,7 @@ class ProbeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (state.running) return START_NOT_STICKY
         val open = PendingIntent.getActivity(this, 0,
-            Intent(this, VehicleProbeActivity::class.java).putExtra("developer", true),
+            Intent(this, VehicleProbeActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "vehicle_scan")
             else Notification.Builder(this)

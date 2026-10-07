@@ -32,4 +32,5 @@
     <string name="vehicle_audio_assistant_microphone">Voice assistant microphone</string>
     <string name="vehicle_audio_input_summary">%1$s input: %2$s</string>
     <string name="vehicle_audio_input_hint">Used during calls or voice requests. An unavailable device uses the system microphone.</string>
+    <string name="steering_test">Wheel button test</string>
 </resources>
