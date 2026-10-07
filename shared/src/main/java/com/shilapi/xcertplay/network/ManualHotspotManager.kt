@@ -11,6 +11,7 @@ import android.util.Log
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
+import com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -35,6 +36,8 @@ class ManualHotspotManager(
     private val isCancelled: () -> Boolean = { false },
 ) : WirelessHotspotManager {
     private val appContext = context.applicationContext
+    // carlito: use the verified APK's interface policy for detected Geely head units.
+    private val geelyCompatibility = GeelyFactoryCarPlay.load(appContext) != null
     private val interfaces = ManualHotspotInterfaces(appContext, onDiagnostic)
     private val waitLock = Object()
     private var confirmed: HotspotSelection? = null
@@ -98,7 +101,7 @@ class ManualHotspotManager(
             sample = {
                 interfaces.sample().also { snapshot ->
                     val messages = mutableListOf<String>()
-                    selectHotspotInterface(snapshot, messages::add)
+                    selectHotspotInterface(snapshot, geelyCompatibility, messages::add)
                     if (messages != lastSampleLog) {
                         messages.forEach(onDiagnostic)
                         lastSampleLog = messages
@@ -107,6 +110,7 @@ class ManualHotspotManager(
             },
             cancelled = { closed || isCancelled() },
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
+            geelyCompatibility = geelyCompatibility,
             log = {},
         ).await(timeoutMillis)
         confirmed = selected
@@ -178,7 +182,7 @@ class ManualHotspotManager(
         val expected = confirmed ?: throw WirelessStartupException(
             WirelessStartupFailure.HOTSPOT_NOT_READY, "Hotspot network is not ready",
         )
-        val current = selectHotspotInterface(interfaces.sample(), onDiagnostic)
+        val current = selectHotspotInterface(interfaces.sample(), geelyCompatibility, onDiagnostic)
         if (closed || isCancelled() || current == null || !expected.sameAddress(current)) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
                 "Hotspot interface or address changed before publication")

@@ -10,7 +10,7 @@ stable baseline; subsequent updates must selectively migrate features and review
 
 ## Retained baseline paths
 
-The shared network and transport runtime, hotspot selection and configuration migration,
+The shared network and transport runtime, hotspot configuration migration,
 USB enumeration/bring-up, Bluetooth paired/connected-peer detection, RFCOMM bootstrap,
 wireless endpoint publication, Bonjour probes, VPN/NCM attachment, AirPlay session
 ownership, and startup/watchdog timing are taken from the baseline. No ECARX snapshot
@@ -21,6 +21,24 @@ The connection controller starts with the baseline source. Only view-area contro
 telephony buttons, full-map projection ownership/zoom, and post-session Bluetooth
 music handoff are migrated. Music handoff operates after AirPlay activates; it does
 not change Bluetooth peer detection, iAP2 RFCOMM, HFP, or MFi discovery.
+
+## Actual Geely APK compatibility correction
+
+The working `吉利修改版-0.2.12-release.apk` and the released 0.2.13.2 APK were
+compared directly. Their manual-hotspot interface selection differs despite the
+working APK's embedded revision marker: the working APK scores eligible up
+interfaces, including Ethernet interfaces; 0.2.13.2 required platform AP evidence.
+An observable empty AP-interface list consequently rejected the KX11 Ethernet
+paths shown in the failed report before Bluetooth iAP2 startup.
+
+Detected Geely head units now use the working APK's interface exclusions, address
+selection, scores and first-candidate tie behavior. The same selection policy is
+used during sampling, stable readiness and pre-publication validation. Scoped IPv6,
+network-consistency checks, cancellation and startup deadlines are retained.
+Other head units retain the existing AP-evidence policy. Connection modes,
+credential selection, USB transport, authentication and package identity are unchanged.
+This corrects the startup rejection; a successful physical KX11 session remains
+to be confirmed. An embedded Git revision is not proof of APK behavior equivalence.
 
 ## Migrated features
 
