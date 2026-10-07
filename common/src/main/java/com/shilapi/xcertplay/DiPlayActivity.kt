@@ -1313,13 +1313,11 @@ class DiPlayActivity : ComponentActivity() {
             WirelessHotspotMode.EXISTING_WIFI,
         )
         val titles = listOf(
-            getString(R.string.automatic_connection),
             getString(R.string.built_in_car_hotspot),
             getString(R.string.wifi_direct),
             getString(R.string.existing_wifi_title),
         )
         val descriptions = listOf(
-            getString(R.string.hotspot_mode_auto_desc),
             getString(R.string.hotspot_mode_manual_desc),
             getString(R.string.hotspot_mode_p2p_desc),
             getString(R.string.existing_wifi_description),
