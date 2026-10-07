@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.media.MediaScannerConnection
+import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
@@ -23,11 +25,12 @@ object DiagnosticExportStore {
     )
 
     /** Android 9 and OEMs without working Downloads storage can still export privately. */
-    fun saveWithoutPicker(context: Context, fileName: String, report: String): SavedReport {
+    fun saveWithoutPicker(context: Context, fileName: String, report: String, shareable: Boolean = true): SavedReport {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 return SavedReport(saveToDownloads(context.contentResolver, fileName, report), savedToDownloads = true)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                Log.w("DiPlayVehicleProbe", "Downloads provider export failed; retaining report locally", error)
                 // Preserve the report even when the OEM's public storage provider is absent.
             }
         }
@@ -37,20 +40,23 @@ object DiagnosticExportStore {
             try {
                 @Suppress("DEPRECATION")
                 val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "DiPlay")
-                return saveInDirectory(context, directory, fileName, report, publicDownload = true)
-            } catch (_: Exception) { /* Keep the private report when public storage is unavailable. */ }
+                return saveInDirectory(context, directory, fileName, report, publicDownload = true, shareable = shareable)
+            } catch (error: Exception) {
+                Log.w("DiPlayVehicleProbe", "Public Downloads file export failed; retaining report locally", error)
+            }
         }
+        if (Build.VERSION.SDK_INT <= 28) Log.w("DiPlayVehicleProbe", "Public Downloads unavailable; storage permission or volume must be checked")
         try {
             // Use Android's package-specific directory, including debug application IDs.
             // No storage permission or document-picker activity is needed.
             val externalFiles = context.getExternalFilesDir(null)
             if (externalFiles != null) {
-                return saveInDirectory(context, File(externalFiles, "diagnostic-reports"), fileName, report)
+                return saveInDirectory(context, File(externalFiles, "diagnostic-reports"), fileName, report, shareable = shareable)
             }
         } catch (_: Exception) {
             // A missing, read-only or full external volume must not prevent export.
         }
-        return saveInDirectory(context, File(context.filesDir, "diagnostic-reports"), fileName, report, savedInApp = true)
+        return saveInDirectory(context, File(context.filesDir, "diagnostic-reports"), fileName, report, savedInApp = true, shareable = shareable)
     }
 
     private fun saveInDirectory(
@@ -60,13 +66,21 @@ object DiagnosticExportStore {
         report: String,
         savedInApp: Boolean = false,
         publicDownload: Boolean = false,
+        shareable: Boolean = true,
     ): SavedReport {
         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Report storage is unavailable")
         // Each export has a new URI: an earlier share grant cannot read a later report.
         val file = File.createTempFile(fileName.removeSuffix(".txt") + "-", ".txt", directory)
         try {
-            file.writeText(report, Charsets.UTF_8)
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.diagnostic-reports", file)
+            // carlito | Saving a vehicle report must not require an OEM sharing provider.
+            val bytes = report.toByteArray(Charsets.UTF_8)
+            file.outputStream().use { output -> output.write(bytes); output.fd.sync() }
+            if (file.length() != bytes.size.toLong()) throw IOException("Report write incomplete")
+            val uri = if (shareable) FileProvider.getUriForFile(context, "${context.packageName}.diagnostic-reports", file)
+                else Uri.fromFile(file) // Local location only; never pass this URI to another application.
+            if (publicDownload) runCatching {
+                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf("text/plain"), null)
+            }
             // Retain only the newest eight reports; never prune the export being returned.
             if (!publicDownload) directory.listFiles()?.filter { it != file && it.isFile }
                 ?.sortedByDescending { it.lastModified() }?.drop(7)?.forEach { it.delete() }

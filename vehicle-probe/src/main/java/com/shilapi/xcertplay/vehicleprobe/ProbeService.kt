@@ -108,9 +108,12 @@ class ProbeService : Service() {
                         }
                     progress("正在保存报告")
                     val filename = "车辆扫描-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date(time))}.txt"
-                    val exported = runCatching { DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, text) }.getOrNull()
+                    val exported = runCatching { DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, text, shareable = false) }
+                        .onFailure { Log.w("DiPlayVehicleProbe", "Public vehicle report export failed", it) }.getOrNull()
+                    Log.i("DiPlayVehicleProbe", "Vehicle report export downloads=${exported?.savedToDownloads == true} " +
+                        "file=${exported?.savedPath ?: "app_storage"}")
                     val location = when {
-                        exported?.savedToDownloads == true -> "报告已保存到“下载/DiPlay”。"
+                        exported?.savedToDownloads == true -> "报告已保存到“下载/DiPlay”。\n文件：${exported.savedPath?.let { File(it).name } ?: filename}"
                         exported != null -> "报告已保存在 DiPlay，允许存储权限后可再次导出到下载目录。"
                         else -> "报告已保存在应用内，导出未完成，可点击“导出扫描报告”重试。"
                     }

@@ -4,7 +4,6 @@ package com.shilapi.xcertplay.vehicleprobe
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
-import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -132,7 +131,9 @@ class VehicleProbeActivity : Activity() {
         detail = label("", 15).apply { setPadding(0, dp(10), 0, dp(18)) }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true }
         counts = label("", 19).apply { setPadding(0, dp(20), 0, dp(8)); setLineSpacing(dp(8).toFloat(), 1f) }
-        card.addView(status); card.addView(detail); card.addView(progress); card.addView(counts)
+        // carlito | Cloud receipt belongs beside the scan result, where it stays visible.
+        cloudStatus = label("", 15).apply { setPadding(0, dp(12), 0, 0) }
+        card.addView(status); card.addView(detail); card.addView(progress); card.addView(counts); card.addView(cloudStatus)
         column.addView(card)
         scan = button("一键扫描并应用属性") { withDownloadsPermission("scan") }
             .apply { setTextColor(Color.WHITE); backgroundTintList = android.content.res.ColorStateList.valueOf(green) }
@@ -143,8 +144,6 @@ class VehicleProbeActivity : Activity() {
         column.addView(button("车型属性配置") { showProfileMenu() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(button("查看车辆数据") { showVehicleValues() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(button("扫描后如何使用属性") { showUsageHelp() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
-        cloudStatus = label("", 15).apply { setPadding(0, dp(16), 0, 0) }
-        column.addView(cloudStatus)
         retryUpload = button("重新上传报告") {
             val time = service?.state?.lastScan ?: 0L
             if (time == 0L) return@button
@@ -314,7 +313,7 @@ class VehicleProbeActivity : Activity() {
         io.execute {
             val result = runCatching {
                 val report = ProbeReports.open(applicationContext).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, report)
+                DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, report, shareable = false)
             }
             main.post {
                 exporting = false
@@ -326,27 +325,12 @@ class VehicleProbeActivity : Activity() {
                     return@post
                 }
                 val inDownloads = saved.savedToDownloads
-                AlertDialog.Builder(this).setTitle("报告已保存")
-                    .setMessage(if (inDownloads) "报告已保存到“下载/DiPlay”，也可通过其他应用分享。"
-                        else "报告已保存到 DiPlay，可通过其他应用分享。")
-                    .setPositiveButton("分享报告") { _, _ -> shareReport(saved.uri) }
-                    .setNegativeButton("关闭", null).show()
+                val actualName = saved.savedPath?.let { java.io.File(it).name } ?: filename
+                AlertDialog.Builder(this).setTitle(if (inDownloads) "报告已保存" else "下载目录保存未完成")
+                    .setMessage(if (inDownloads) "位置：下载/DiPlay\n文件：$actualName"
+                        else "扫描报告已保存在应用中。请允许存储权限，并确认存储空间可用后重新导出。")
+                    .setPositiveButton("知道了", null).show()
             }
-        }
-    }
-
-    private fun shareReport(uri: android.net.Uri) {
-        try {
-            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = ClipData.newRawUri("车辆扫描报告", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "分享扫描报告"))
-        } catch (_: android.content.ActivityNotFoundException) {
-            Toast.makeText(this, "未找到分享应用，报告已保存在 DiPlay", Toast.LENGTH_LONG).show()
-        } catch (_: SecurityException) {
-            Toast.makeText(this, "暂时无法分享，报告已保存在 DiPlay", Toast.LENGTH_LONG).show()
         }
     }
 
