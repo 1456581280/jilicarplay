@@ -128,16 +128,16 @@ class UsbMuxFrameBufferTest {
         rejectAfter(synAck, zeroPadding + capturedPadding + tcp(data = data))
     }
 
-    @Test fun paddingAfterAMediaOrLockdownDataFrameIsNotDiscarded() {
-        rejectAfter(tcp(data = data), capturedPadding + tcp(data = data))
+    @Test fun payloadReplyPaddingPreservesEveryTransferSplit() {
+        assertEverySplitPreservesFrames(tcp(data = data), capturedPadding, tcp(data = data))
     }
 
-    @Test fun paddingAfterAPayloadFreeAckIsNotDiscarded() {
-        rejectAfter(tcp(flags = 0x10), capturedPadding + tcp(data = data))
+    @Test fun payloadFreeAckPaddingPreservesEveryTransferSplit() {
+        assertEverySplitPreservesFrames(tcp(flags = 0x10), capturedPadding, tcp(data = data))
     }
 
-    @Test fun synAckWithDataDoesNotEnablePaddingRecovery() {
-        rejectAfter(tcp(flags = 0x12, data = data), capturedPadding + tcp(data = data))
+    @Test fun synAckWithDataAllowsBoundedPaddingRecovery() {
+        assertEverySplitPreservesFrames(tcp(flags = 0x12, data = data), capturedPadding, tcp(data = data))
     }
 
     @Test fun nonVersionTwoReplyDoesNotEnablePaddingRecovery() {
