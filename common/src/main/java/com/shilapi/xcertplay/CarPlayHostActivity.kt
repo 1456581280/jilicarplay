@@ -117,7 +117,6 @@ import kotlin.math.roundToInt
  */
 class CarPlayHostActivity : ComponentActivity() {
     private val geelyFactory by lazy { GeelyFactoryCarPlay.load(applicationContext) }
-    private val factoryCarIcons by lazy { geelyFactory?.icons().orEmpty() }
     private fun supportsOpusOutput(): Boolean {
         if (!wirelessEnabled) {
             appendLog("Audio Opus not advertised for wired CarPlay; requesting PCM audio")
@@ -3547,9 +3546,8 @@ class CarPlayHostActivity : ComponentActivity() {
             decodeAirPlayIcon(customBytes)?.let { return CarIconSelection(listOf(it), R.string.custom_1_1_icon) }
             AirPlayPersistence.clearCustomAirPlayIcon(this)
         }
-        if (factoryCarIcons.isNotEmpty()) return CarIconSelection(factoryCarIcons, R.string.factory_car_icon)
         return CarIconSelection(listOf(decodeAirPlayIcon(defaultAirPlayIconBytes())
-            ?: throw IllegalStateException("Packaged AirPlay icon is invalid")), R.string.default_placeholder_icon)
+            ?: throw IllegalStateException("Packaged AirPlay icon is invalid")), R.string.default_icon)
     }
 
     private fun decodeAirPlayIcon(encoded: ByteArray): AirPlayIcon? {
@@ -3571,21 +3569,9 @@ class CarPlayHostActivity : ComponentActivity() {
         return AirPlayIcon(bounds.outWidth, bounds.outHeight, encoded)
     }
 
-    private fun defaultAirPlayIconBytes(): ByteArray {
-        factoryCarIcons.lastOrNull()?.let { return it.data }
-        if (geelyFactory == null) return resources.openRawResource(R.raw.ic_car_home).use { it.readBytes() }
-        val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
-        return try {
-            resources.getDrawable(R.drawable.ic_car_home_fallback, theme).apply {
-                setBounds(0, 0, 256, 256)
-                draw(Canvas(bitmap))
-            }
-            ByteArrayOutputStream().use { output ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
-                output.toByteArray()
-            }
-        } finally { bitmap.recycle() }
-    }
+    // carlito | Settings preview and the advertised OEM button share the bundled Geely artwork.
+    private fun defaultAirPlayIconBytes(): ByteArray =
+        resources.openRawResource(R.raw.ic_car_home).use { it.readBytes() }
 
     private fun updateAirPlayIconPreview() {
         val preview = iconPreviewView ?: return

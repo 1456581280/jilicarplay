@@ -108,7 +108,7 @@ object AirPlayPersistence {
 
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
-    const val DEFAULT_OEM_LABEL = "BYD"
+    const val DEFAULT_OEM_LABEL = "吉利"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -466,10 +466,10 @@ object AirPlayPersistence {
 
     fun loadOemLabel(context: Context): String {
         val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_OEM_LABEL, null)
-        val factory = GeelyFactoryCarPlay.load(context)
-        // Older installs saved BYD automatically even on Geely; preserve other custom labels.
-        if (factory != null && (stored.isNullOrBlank() || stored == DEFAULT_OEM_LABEL)) return factory.iconLabel
-        return stored.orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+        // carlito | Migrate previously persisted brand defaults; keep other custom names.
+        return stored?.takeUnless {
+            it.isBlank() || it.equals("BYD", ignoreCase = true) || it.equals("Geely", ignoreCase = true)
+        } ?: DEFAULT_OEM_LABEL
     }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
