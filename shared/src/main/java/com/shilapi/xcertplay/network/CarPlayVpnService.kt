@@ -240,7 +240,9 @@ class CarPlayVpnService : VpnService() {
                         ))
                     }
                     runCatching { current.listener.onDebugLog(
-                        "airplay TCP accepted family=${if (socket.inetAddress is Inet6Address) "IPv6" else "IPv4"}",
+                        // carlito: record the LAN that actually received the phone connection.
+                        "airplay TCP accepted family=${if (socket.inetAddress is Inet6Address) "IPv6" else "IPv4"} " +
+                            "iface=${java.net.NetworkInterface.getByInetAddress(socket.localAddress)?.name ?: "unknown"}",
                     ) }
                     AirPlaySession(
                         socket = socket,

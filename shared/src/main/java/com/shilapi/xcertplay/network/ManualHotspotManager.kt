@@ -41,6 +41,7 @@ class ManualHotspotManager(
     private val interfaces = ManualHotspotInterfaces(appContext, onDiagnostic)
     private val waitLock = Object()
     private var confirmed: HotspotSelection? = null
+    private var confirmedAddresses: List<HotspotSelection> = emptyList()
     private var lastSampleLog = emptyList<String>()
     private val wifiManager = appContext.getSystemService(WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
@@ -76,18 +77,26 @@ class ManualHotspotManager(
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
-        val apConfiguration = readApConfiguration()
-        if (!preferSystemConfiguration && apConfiguration != null &&
-            expectedSsid != null && apConfiguration.ssid != expectedSsid
+        // carlito: explicit saved credentials belong to the user's chosen hotspot.
+        // A second OEM hotspot's readable configuration must not silently replace them.
+        val systemConfiguration = readApConfiguration()
+        val useSystemConfiguration = preferSystemConfiguration && expectedSsid == null
+        if (!useSystemConfiguration && !geelyCompatibility && systemConfiguration != null &&
+            expectedSsid != null && systemConfiguration.ssid != expectedSsid
         ) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot SSID does not match the active local AP configuration: " +
-                    "'${apConfiguration.ssid}'",
+                    "'${systemConfiguration.ssid}'",
             )
         }
-        if (!preferSystemConfiguration) validateApConfiguration(apConfiguration)
+        val apConfiguration = systemConfiguration?.takeIf {
+            useSystemConfiguration || expectedSsid == null || it.ssid == expectedSsid
+        }
+        onDiagnostic("Manual hotspot systemConfigReadable=${systemConfiguration != null} " +
+            "systemConfigMatchesSaved=${systemConfiguration?.let { it.ssid == expectedSsid }}")
+        if (!useSystemConfiguration) validateApConfiguration(apConfiguration)
         val activeSsid = when {
-            preferSystemConfiguration && apConfiguration != null -> apConfiguration.ssid
+            useSystemConfiguration && apConfiguration != null -> apConfiguration.ssid
             expectedSsid != null -> expectedSsid
             apConfiguration != null -> apConfiguration.ssid
             else -> throw WirelessStartupException(
@@ -114,6 +123,16 @@ class ManualHotspotManager(
             log = {},
         ).await(timeoutMillis)
         confirmed = selected
+        confirmedAddresses = manualHotspotAddresses(interfaces.sample(), selected, geelyCompatibility)
+        if (confirmedAddresses.none { it.sameAddress(selected) }) {
+            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
+                "Hotspot addresses changed during startup")
+        }
+        confirmedAddresses.forEach { path ->
+            onDiagnostic("Manual hotspot listener path iface=${path.name} index=${path.index} " +
+                "family=${if (path.address is Inet6Address) "IPv6" else "IPv4"} " +
+                "scope=${(path.address as? Inet6Address)?.scopeId ?: 0}")
+        }
         onDiagnostic("hotspot interface confirmed iface=${selected.name} index=${selected.index} atNs=${System.nanoTime()}")
         val network = NetworkInterface.getByName(selected.name)
         val localInterface = LocalHotspotInterface(selected.name, selected.address,
@@ -134,16 +153,17 @@ class ManualHotspotManager(
             scanFrequency != null -> scanFrequency
             else -> null
         }
-        val security = apConfiguration?.security ?: expectedSecurity
+        val security = if (useSystemConfiguration) apConfiguration?.security ?: expectedSecurity else expectedSecurity
         val systemPassphrase = apConfiguration?.passphrase
             ?.takeIf { it.length in 8..63 && '\u0000' !in it }
         val effectivePassphrase = when (security) {
             Iap2WirelessSecurity.NONE -> ""
-            else -> systemPassphrase ?: passphrase
+            else -> if (useSystemConfiguration) systemPassphrase.orEmpty() else passphrase
         }
         onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
             "security=$security channelKnown=${channel > 0} " +
-            "credentialsSource=${if (systemPassphrase != null) "system" else "saved"} " +
+            "credentialsSource=${if (useSystemConfiguration) "system" else "saved"} " +
+            "savedPasswordMatchesSystem=${systemPassphrase?.let { it == passphrase }} " +
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
             "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
         if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
@@ -168,13 +188,10 @@ class ManualHotspotManager(
             bssid = localInterface.hardwareAddress,
             interfaceName = localInterface.name,
             hostAddress = localInterface.hostAddress,
-            bandLabel = when (expectedBand) {
-                ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
-                ManualHotspotBand.GHZ_5 -> "5 GHz"
-                ManualHotspotBand.AUTO ->
-                    frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
-            },
+            // carlito: a preferred band is not evidence of the OEM hotspot's running band.
+            bandLabel = frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto",
             backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
+            hostAddresses = confirmedAddresses.map { it.address },
         )
     }
 
@@ -182,8 +199,13 @@ class ManualHotspotManager(
         val expected = confirmed ?: throw WirelessStartupException(
             WirelessStartupFailure.HOTSPOT_NOT_READY, "Hotspot network is not ready",
         )
-        val current = selectHotspotInterface(interfaces.sample(), geelyCompatibility, onDiagnostic)
-        if (closed || isCancelled() || current == null || !expected.sameAddress(current)) {
+        val snapshot = interfaces.sample()
+        val current = selectHotspotInterface(snapshot, geelyCompatibility, onDiagnostic)
+        val addresses = current?.let { manualHotspotAddresses(snapshot, it, geelyCompatibility) }.orEmpty()
+        if (closed || isCancelled() || current == null || !expected.sameAddress(current) ||
+            addresses.size != confirmedAddresses.size || confirmedAddresses.any { expectedPath ->
+                addresses.none { it.sameAddress(expectedPath) }
+            }) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
                 "Hotspot interface or address changed before publication")
         }
@@ -218,7 +240,6 @@ class ManualHotspotManager(
                     "configured band ${wifiBandLabel(if (expectedBand == ManualHotspotBand.GHZ_2_4) 1 else 2)}",
             )
         }
-        // WPA2 vs WPA3 variants are fine: the live security is what the iPhone is told (see start()).
         // Only an open/secured mismatch means the saved password cannot be right.
         if ((configuration.security == Iap2WirelessSecurity.NONE) != (expectedSecurity == Iap2WirelessSecurity.NONE)) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,

@@ -66,49 +66,93 @@ internal fun selectHotspotInterface(
         .firstOrNull()?.second
 }
 
-// carlito: reproduce the working Geely APK's selection, including OEM Ethernet paths.
-private fun selectGeelyHotspotInterface(
+// carlito: prefer usable IPv4 without treating an empty OEM AP list as proof of no LAN.
+private fun geelyHotspotCandidates(
     snapshot: HotspotNetworkSnapshot,
     log: (String) -> Unit,
-): HotspotSelection? {
+    includeDefaultLan: Boolean = false,
+): List<HotspotSelection> {
     val excludedPrefixes = listOf("lo", "ip6", "bond", "dummy", "rmnet", "r_rmnet", "tun", "ppp", "sit")
+    val ownedInterfaces = snapshot.apInterfaces.orEmpty()
     return snapshot.interfaces.mapNotNull { iface ->
+        val owned = iface.name in ownedInterfaces
+        val address = existingWifiHostAddresses(iface.addresses, iface.index).firstOrNull()
+        // carlito: an OEM Ethernet default route is not proof that its private LAN is an uplink.
+        // Cover it as an alternate listener without changing Android's selected default network.
+        val defaultLan = includeDefaultLan && iface.name.startsWith("eth") &&
+            address is Inet4Address && address.isSiteLocalAddress
         val reason = when {
             !iface.up || iface.index <= 0 -> "interface_down"
-            iface.name == snapshot.defaultInterface || excludedPrefixes.any { iface.name.startsWith(it) } ->
-                "excluded_or_active"
+            excludedPrefixes.any { iface.name.startsWith(it) } -> "excluded_interface"
+            ownedInterfaces.isNotEmpty() && !owned -> "not_platform_ap"
+            !owned && ((iface.name == snapshot.defaultInterface && !defaultLan) ||
+                snapshot.wifiUpstreams?.contains(iface.name) == true) -> "upstream_without_ap_evidence"
             else -> null
         }
         if (reason != null) {
             log("hotspot candidate compatibility=geely_apk iface=${iface.name} skipped=$reason")
             return@mapNotNull null
         }
-        val address = wirelessHostAddress(iface.addresses, iface.index)
         if (address == null) {
             log("hotspot candidate compatibility=geely_apk iface=${iface.name} skipped=address_unavailable")
             return@mapNotNull null
         }
         val interfaceScore = when {
+            owned -> 200
             iface.name.startsWith("ap") || iface.name.contains("softap", ignoreCase = true) -> 100
             iface.name.startsWith("p2p") -> 80
             iface.name.startsWith("wlan") || iface.name.startsWith("swlan") -> 70
             else -> 0
         }
         val addressScore = when (address) {
-            is Inet4Address -> {
-                val bytes = address.address
-                (if ((bytes[0].toInt() and 0xff) == 192 && (bytes[1].toInt() and 0xff) == 168) 30 else 0) +
-                    (if (address.isSiteLocalAddress) 20 else 0)
-            }
+            is Inet4Address -> if (address.isSiteLocalAddress) 500 else 0
             is Inet6Address -> if (address.isLinkLocalAddress) 15 else 0
             else -> 0
         }
         val score = interfaceScore + addressScore
         log("hotspot candidate compatibility=geely_apk iface=${iface.name} index=${iface.index} " +
             "family=${if (address is Inet6Address) "IPv6" else "IPv4"} " +
-            "scope=${(address as? Inet6Address)?.scopeId ?: 0} score=$score")
+            "scope=${(address as? Inet6Address)?.scopeId ?: 0} score=$score apEvidence=$owned")
         score to HotspotSelection(iface.name, iface.index, address)
-    }.maxByOrNull { it.first }?.second
+    }.sortedByDescending { it.first }.map { it.second }
+}
+
+private fun selectGeelyHotspotInterface(
+    snapshot: HotspotNetworkSnapshot,
+    log: (String) -> Unit,
+): HotspotSelection? {
+    val preferred = geelyHotspotCandidates(snapshot, log).firstOrNull()
+    if (preferred?.address is Inet4Address) return preferred
+    // carlito: if the only observable IPv4 LAN is the OEM Ethernet default, use it before IPv6.
+    return geelyHotspotCandidates(snapshot, {}, includeDefaultLan = true)
+        .firstOrNull { it.address is Inet4Address && it.address.isSiteLocalAddress } ?: preferred
+}
+
+// carlito: OEM Ethernet VLANs can hide AP ownership. Serve their private IPv4 alternatives
+// at the same port rather than trusting the first equal-score VLAN. No subnet is hardcoded.
+internal fun manualHotspotAddresses(
+    snapshot: HotspotNetworkSnapshot,
+    selected: HotspotSelection,
+    geelyCompatibility: Boolean,
+): List<HotspotSelection> {
+    if (!snapshot.consistent || snapshot.apEnabled == false) return emptyList()
+    val primary = snapshot.interfaces.firstOrNull {
+        it.name == selected.name && it.index == selected.index && it.up
+    } ?: return emptyList()
+    val addresses = existingWifiHostAddresses(primary.addresses, primary.index)
+    if (addresses.none { HotspotSelection(primary.name, primary.index, it).sameAddress(selected) }) {
+        return emptyList()
+    }
+    val result = mutableListOf(selected)
+    addresses.filter { it != selected.address }.forEach {
+        result.add(HotspotSelection(primary.name, primary.index, it))
+    }
+    if (geelyCompatibility && snapshot.apInterfaces.isNullOrEmpty()) {
+        geelyHotspotCandidates(snapshot, {}, includeDefaultLan = true).filter {
+            it.name != selected.name && it.address is Inet4Address && it.address.isSiteLocalAddress
+        }.forEach(result::add)
+    }
+    return result.distinctBy { it.address.hostAddress }
 }
 
 internal class ManualHotspotReadiness(

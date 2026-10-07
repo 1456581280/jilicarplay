@@ -21,6 +21,8 @@ import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -146,7 +148,11 @@ class CarPlayBonjour(
     private val nsdManager = (context.applicationContext ?: context)
         .getSystemService(Context.NSD_SERVICE) as NsdManager
     private val services = LinkedBlockingQueue<NsdServiceInfo>()
-    private val interfaceServices = LinkedBlockingQueue<Pair<CarPlayBonjourEndpoint, InetAddress>>()
+    // carlito: retain the receiving LAN address through resolution and probing.
+    private data class InterfaceEndpoint(
+        val endpoint: CarPlayBonjourEndpoint, val target: InetAddress, val source: InetAddress,
+    )
+    private val interfaceServices = LinkedBlockingQueue<InterfaceEndpoint>()
     private val discoveryEvents = LinkedBlockingQueue<CarPlayBonjourEvent.Discovery>(32)
     private val seenServices = ConcurrentHashMap.newKeySet<String>()
     private val lifecycleLock = Any()
@@ -177,8 +183,8 @@ class CarPlayBonjour(
     private var discoveryRequested = false
     @Volatile
     private var worker: Thread? = null
-    @Volatile
-    private var activeSocket: Socket? = null
+    private val activeSockets = ConcurrentHashMap.newKeySet<Socket>()
+    private var probeExecutor: ScheduledExecutorService? = null
     private val interfaceMdns = mutableListOf<JmDNS>()
 
     private val interfaceListener = object : ServiceListener {
@@ -190,7 +196,7 @@ class CarPlayBonjour(
         }
 
         override fun serviceRemoved(event: ServiceEvent) {
-            seenServices.remove("${event.name}|${event.dns.inetAddress is Inet4Address}")
+            seenServices.remove("${event.name}|${event.dns.inetAddress.hostAddress}")
         }
 
         override fun serviceResolved(event: ServiceEvent) {
@@ -200,7 +206,7 @@ class CarPlayBonjour(
             // another address family of the same Android interface.
             val address = info.inetAddresses.firstOrNull {
                 (it is Inet4Address) == (event.dns.inetAddress is Inet4Address)
-            }?.let(::applyLocalScope)
+            }?.let { applyLocalScope(it, event.dns.inetAddress) }
             if (address == null || info.port !in 1..65535) {
                 discoveryEvents.offer(CarPlayBonjourEvent.Discovery(
                     if (address == null) CarPlayBonjourEvent.Discovery.Stage.NO_MATCHING_ADDRESS
@@ -210,12 +216,12 @@ class CarPlayBonjour(
                 return
             }
             // A failed probe on one family must not suppress the other family's endpoint.
-            if (!seenServices.add("${event.name}|${address is Inet4Address}")) return
+            if (!seenServices.add("${event.name}|${event.dns.inetAddress.hostAddress}")) return
             val endpoint = CarPlayBonjourEndpoint(
                 event.name, address.hostAddress ?: return, info.port,
                 info.getPropertyString("id"),
             )
-            interfaceServices.offer(endpoint to address)
+            interfaceServices.offer(InterfaceEndpoint(endpoint, address, event.dns.inetAddress))
         }
     }
 
@@ -284,8 +290,12 @@ class CarPlayBonjour(
                             0, 0, CarPlayBonjourProtocol.airPlayTxtRecords(config, identity),
                         ))
                     }
-                    publishedFamilies = advertisedAddresses.joinToString(",") {
+                    publishedFamilies = advertisedAddresses.map {
                         if (it is Inet4Address) "IPv4" else "IPv6"
+                    }.distinct().joinToString(",")
+                    // carlito: a failed VLAN probe must not stall discovery on another LAN.
+                    probeExecutor = Executors.newScheduledThreadPool(4) { task ->
+                        Thread(task, "carplay-lan-probe").apply { isDaemon = true }
                     }
                 } else {
                     registerAirPlay()
@@ -311,6 +321,8 @@ class CarPlayBonjour(
                     discoveryRequested = false
                     runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
                 }
+                probeExecutor?.shutdownNow()
+                probeExecutor = null
                 worker?.interrupt()
                 worker = null
                 interfaceMdns.forEach { dns -> runCatching { dns.close() } }
@@ -336,8 +348,10 @@ class CarPlayBonjour(
                 discoveryRequested = false
                 runCatching { nsdManager.stopServiceDiscovery(discoveryListener) }
             }
-            activeSocket?.let { socket -> runCatching { socket.close() } }
-            activeSocket = null
+            probeExecutor?.shutdownNow()
+            probeExecutor = null
+            activeSockets.forEach { socket -> runCatching { socket.close() } }
+            activeSockets.clear()
             services.clear()
             interfaceServices.clear()
             discoveryEvents.clear()
@@ -392,11 +406,11 @@ class CarPlayBonjour(
             if (useInterfaceMdns) {
                 try {
                     while (true) emit(discoveryEvents.poll() ?: break)
-                    val (endpoint, address) = interfaceServices.poll(
+                    val resolved = interfaceServices.poll(
                         WORKER_POLL_MILLIS, TimeUnit.MILLISECONDS,
                     ) ?: continue
-                    emit(CarPlayBonjourEvent.Resolved(endpoint))
-                    probe(endpoint, address)?.let(::emit)
+                    emit(CarPlayBonjourEvent.Resolved(resolved.endpoint))
+                    scheduleInterfaceProbe(resolved)
                 } catch (_: InterruptedException) {
                     return
                 } catch (error: Exception) {
@@ -502,16 +516,16 @@ class CarPlayBonjour(
             listOfNotNull(serviceInfo.host)
         }
         return addresses.firstOrNull { it is Inet6Address && it.isLinkLocalAddress }
-            ?.let(::applyLocalScope)
+            ?.let { applyLocalScope(it) }
             ?: addresses.firstOrNull { it is Inet4Address }
             ?: addresses.firstOrNull { it is Inet6Address }
             ?: addresses.firstOrNull()
     }
 
-    private fun applyLocalScope(address: InetAddress): InetAddress {
-        val scope = advertisedAddresses.filterIsInstance<Inet6Address>()
+    private fun applyLocalScope(address: InetAddress, source: InetAddress? = null): InetAddress {
+        val scope = (source as? Inet6Address)?.scopeId ?: advertisedAddresses.filterIsInstance<Inet6Address>()
             .firstOrNull { it.scopeId != 0 }?.scopeId ?: return address
-        if (address !is Inet6Address || address.scopeId != 0) return address
+        if (address !is Inet6Address || !address.isLinkLocalAddress || scope == 0) return address
         return try {
             Inet6Address.getByAddress(null, address.address, scope)
         } catch (_: Exception) {
@@ -519,15 +533,40 @@ class CarPlayBonjour(
         }
     }
 
+    // carlito: retry after releasing the worker so silent VLANs cannot occupy every probe slot.
+    private fun scheduleInterfaceProbe(resolved: InterfaceEndpoint, attempt: Int = 1) {
+        synchronized(lifecycleLock) {
+            if (closed) return
+            probeExecutor?.schedule({
+                if (!closed) {
+                    val error = try {
+                        val status = probeOnce(resolved.target, resolved.endpoint.port, attempt, resolved.source)
+                        emit(CarPlayBonjourEvent.Probed(resolved.endpoint, attempt, status, null))
+                        null
+                    } catch (error: IOException) {
+                        error
+                    } catch (error: RuntimeException) {
+                        IOException("AirPlay control probe failed", error)
+                    }
+                    if (error != null && !closed) {
+                        if (attempt < MAX_PROBE_ATTEMPTS) scheduleInterfaceProbe(resolved, attempt + 1)
+                        else emit(CarPlayBonjourEvent.Probed(resolved.endpoint, attempt, null, error))
+                    }
+                }
+            }, if (attempt == 1) 0L else PROBE_RETRY_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+        }
+    }
+
     private fun probe(
         endpoint: CarPlayBonjourEndpoint,
         address: InetAddress,
+        source: InetAddress? = null,
     ): CarPlayBonjourEvent.Probed? {
         var lastError: IOException? = null
         repeat(MAX_PROBE_ATTEMPTS) { attempt ->
             if (closed) return null
             try {
-                val statusLine = probeOnce(address, endpoint.port, attempt + 1)
+                val statusLine = probeOnce(address, endpoint.port, attempt + 1, source)
                 return CarPlayBonjourEvent.Probed(
                     endpoint = endpoint,
                     attempts = attempt + 1,
@@ -552,16 +591,16 @@ class CarPlayBonjour(
         )
     }
 
-    private fun probeOnce(address: InetAddress, port: Int, attempt: Int): String {
+    private fun probeOnce(address: InetAddress, port: Int, attempt: Int, source: InetAddress?): String {
         val socket = Socket()
         var stage = CarPlayBonjourEvent.ProbeProgress.Stage.CONNECTING
-        synchronized(lifecycleLock) {
-            check(!closed) { "CarPlayBonjour is closed" }
-            activeSocket = socket
-        }
         try {
+            synchronized(lifecycleLock) {
+                check(!closed) { "CarPlayBonjour is closed" }
+                activeSockets.add(socket)
+            }
             emit(CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.CONNECTING, attempt, address is Inet6Address))
-            sourceAddressFor(address)?.let { socket.bind(InetSocketAddress(it, 0)) }
+            (source ?: sourceAddressFor(address))?.let { socket.bind(InetSocketAddress(it, 0)) }
             socket.connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MILLIS)
             stage = CarPlayBonjourEvent.ProbeProgress.Stage.TCP_CONNECTED
             emit(CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.TCP_CONNECTED, attempt, address is Inet6Address))
@@ -589,7 +628,7 @@ class CarPlayBonjour(
             throw error
         } finally {
             synchronized(lifecycleLock) {
-                if (activeSocket === socket) activeSocket = null
+                activeSockets.remove(socket)
             }
             runCatching { socket.close() }
         }

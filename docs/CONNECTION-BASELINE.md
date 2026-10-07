@@ -14,8 +14,8 @@ The shared network and transport runtime, hotspot configuration migration,
 USB enumeration/bring-up, Bluetooth paired/connected-peer detection, RFCOMM bootstrap,
 wireless endpoint publication, Bonjour probes, VPN/NCM attachment, AirPlay session
 ownership, and startup/watchdog timing are taken from the baseline. No ECARX snapshot
-reader, physical-interface monitor, KX11 gateway override, or post-baseline address
-fan-out is used in normal connection startup.
+reader, physical-interface monitor, KX11 gateway override, is used in normal connection startup. The focused wireless correction below
+adds LAN address coverage without changing USB bring-up.
 
 The connection controller starts with the baseline source. Only view-area controls,
 telephony buttons, full-map projection ownership/zoom, and post-session Bluetooth
@@ -31,14 +31,34 @@ interfaces, including Ethernet interfaces; 0.2.13.2 required platform AP evidenc
 An observable empty AP-interface list consequently rejected the KX11 Ethernet
 paths shown in the failed report before Bluetooth iAP2 startup.
 
-Detected Geely head units now use the working APK's interface exclusions, address
-selection, scores and first-candidate tie behavior. The same selection policy is
-used during sampling, stable readiness and pre-publication validation. Scoped IPv6,
-network-consistency checks, cancellation and startup deadlines are retained.
-Other head units retain the existing AP-evidence policy. Connection modes,
-credential selection, USB transport, authentication and package identity are unchanged.
-This corrects the startup rejection; a successful physical KX11 session remains
-to be confirmed. An embedded Git revision is not proof of APK behavior equivalence.
+Detected Geely head units retain the working APK's OEM Ethernet eligibility,
+with IPv4 preferred when available. Positive platform AP ownership takes precedence;
+Wi-Fi upstreams remain excluded. When AP ownership is hidden,
+private IPv4 alternatives on eligible up OEM LAN interfaces are served on
+the same port, together with the primary interface's scoped IPv6 fallback. This also
+covers a private OEM Ethernet default LAN as an alternate or as the primary when no
+other eligible IPv4 LAN is visible, since the Android default route alone cannot
+establish where the OEM hotspot is bridged. No route is changed. Interface
+and address stability are validated before publication and iAP2 StartSession.
+No IP subnet, Wi-Fi channel or unobserved phone association is invented.
+
+The TCP listener, interface Bonjour and iAP2 endpoint advertise the same address list.
+Bonjour resolution retains the receiving local address: connect probes bind to that
+address and use its IPv6 scope. Independent LAN probes cannot block discovery on
+other interfaces; cancellation closes all probe sockets and workers.
+
+Explicit saved manual hotspot credentials take precedence, including in automatic
+mode's existing-hotspot attempt. Readable system configuration supplies credentials
+only when there is no saved network name. A second Geely hotspot's configuration
+does not override the selected network; observed metadata is used only for matching
+SSID. Diagnostic reports record configuration agreement without credentials.
+
+Other head units retain their AP-evidence policy. USB, MFi authentication, package
+identity and startup deadlines are unchanged. The failed wireless report shows
+successful Bluetooth/MFi but zero AirPlay TCP, with IPv4 available on the selected
+IPv6-only published interface; it does not prove which OEM VLAN the phone uses.
+A successful physical KX11 session remains to be confirmed. An embedded Git revision
+is not proof of APK behavior equivalence.
 
 ## Migrated features
 

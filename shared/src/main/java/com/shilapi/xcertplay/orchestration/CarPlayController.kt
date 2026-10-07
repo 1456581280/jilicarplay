@@ -1365,7 +1365,7 @@ class CarPlayController(
             val advertisedAirPlayConfig = wirelessAirPlayConfig.copy(port = listenerPort)
             debugLog(
                 "wireless AirPlay listener attached bind=$hostAddressText " +
-                    "port=$listenerPort" +
+                    "port=$listenerPort addressCount=${hotspotInfo.hostAddresses.size}" +
                     (if (listenerPort != airPlayConfig.port) " (preferred ${airPlayConfig.port} in use)" else ""),
             )
             if (isStaleWirelessRun(generation)) {
@@ -1463,7 +1463,9 @@ class CarPlayController(
                 passphrase = hotspotInfo.passphrase,
                 channel = hotspotInfo.channel,
                 security = hotspotInfo.security,
-                ipAddresses = listOf(hostAddressText),
+                // carlito: publish exactly the addresses served by the wireless listener/Bonjour.
+                ipAddresses = (listOf(hostAddress) + hotspotInfo.hostAddresses)
+                    .map(::hostAddressText).distinct(),
                 airPlayPort = listenerPort,
                 deviceIdentifier = deviceIdentifier,
                 publicKey = identity.publicKeyHex,
