@@ -211,7 +211,7 @@
     <string name="hevc_software_decoder">Программный декодер HEVC</string>
     <string name="hide_bottom_bar">Скрыть нижнюю панель</string>
     <string name="hide_keyboard">Скрыть клавиатуру</string>
-    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Скрывать системные панели автомобиля, пока открыт CarPlay.</string>
+    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Действует на всех экранах DiPlay. Проведите от края, чтобы временно показать системные панели.</string>
     <string name="hide_the_navigation_bar">Скрыть панель навигации</string>
     <string name="hide_the_status_bar">Скрыть панель состояния</string>
     <string name="hide_top_bar">Скрыть верхнюю панель</string>

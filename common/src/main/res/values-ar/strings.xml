@@ -211,7 +211,7 @@
     <string name="hevc_software_decoder">مفكّك HEVC البرمجي</string>
     <string name="hide_bottom_bar">إخفاء الشريط السفلي</string>
     <string name="hide_keyboard">إخفاء لوحة المفاتيح</string>
-    <string name="hide_the_car_s_system_bars_while_carplay_is_open">إخفاء أشرطة النظام في السيارة أثناء فتح CarPlay.</string>
+    <string name="hide_the_car_s_system_bars_while_carplay_is_open">يسري في جميع صفحات DiPlay. اسحب من حافة الشاشة لإظهار أشرطة النظام مؤقتًا.</string>
     <string name="hide_the_navigation_bar">إخفاء شريط التنقل</string>
     <string name="hide_the_status_bar">إخفاء شريط الحالة</string>
     <string name="hide_top_bar">إخفاء الشريط العلوي</string>

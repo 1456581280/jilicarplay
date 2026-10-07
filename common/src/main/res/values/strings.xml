@@ -221,7 +221,7 @@
     <string name="hevc_software_decoder">HEVC software decoder</string>
     <string name="hide_bottom_bar">Hide bottom bar</string>
     <string name="hide_keyboard">Hide keyboard</string>
-    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Hide the car’s system bars while CarPlay is open.</string>
+    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Applies throughout DiPlay. Swipe from an edge to show system bars temporarily.</string>
     <string name="hide_the_navigation_bar">Hide the navigation bar</string>
     <string name="hide_the_status_bar">Hide the status bar</string>
     <string name="hide_top_bar">Hide top bar</string>

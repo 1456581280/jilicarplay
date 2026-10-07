@@ -211,7 +211,7 @@
     <string name="hevc_software_decoder">Decodificador por software HEVC</string>
     <string name="hide_bottom_bar">Ocultar barra inferior</string>
     <string name="hide_keyboard">Ocultar teclado</string>
-    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Oculta las barras del sistema del coche mientras CarPlay está abierto.</string>
+    <string name="hide_the_car_s_system_bars_while_carplay_is_open">Se aplica en todas las pantallas de DiPlay. Desliza desde un borde para mostrar las barras temporalmente.</string>
     <string name="hide_the_navigation_bar">Ocultar barra de navegación</string>
     <string name="hide_the_status_bar">Ocultar barra de estado</string>
     <string name="hide_top_bar">Ocultar barra superior</string>

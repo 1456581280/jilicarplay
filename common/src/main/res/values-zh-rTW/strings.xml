@@ -211,7 +211,7 @@
     <string name="hevc_software_decoder">HEVC 軟體解碼器</string>
     <string name="hide_bottom_bar">隱藏底部導覽列</string>
     <string name="hide_keyboard">隱藏鍵盤</string>
-    <string name="hide_the_car_s_system_bars_while_carplay_is_open">開啟 CarPlay 時隱藏車機系統列。</string>
+    <string name="hide_the_car_s_system_bars_while_carplay_is_open">在 DiPlay 各頁面生效，從螢幕邊緣滑動可暫時顯示系統列。</string>
     <string name="hide_the_navigation_bar">隱藏導覽列</string>
     <string name="hide_the_status_bar">隱藏狀態列</string>
     <string name="hide_top_bar">隱藏頂部狀態列</string>

@@ -4767,8 +4767,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun applyFullscreenMode() {
-        val multiWindow = isMultiWindowActive()
-        applyVehicleSystemBars(this, hideTopBar && !multiWindow, hideBottomBar && !multiWindow)
+        applyVehicleSystemBars(this, hideTopBar, hideBottomBar)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()

@@ -2,7 +2,6 @@
 package com.shilapi.xcertplay
 
 import android.app.Activity
-import android.os.Build
 import android.view.View
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -13,9 +12,10 @@ const val EXTRA_HIDE_BOTTOM_BAR = "diplay.hideBottomBar"
 
 @Suppress("DEPRECATION")
 fun applyVehicleSystemBars(activity: Activity, hideTopBar: Boolean, hideBottomBar: Boolean) {
-    val multiWindow = Build.VERSION.SDK_INT >= 24 && activity.isInMultiWindowMode
-    val hideTop = hideTopBar && !multiWindow
-    val hideBottom = hideBottomBar && !multiWindow
+    // carlito | OEM task containers may report multi-window even for a full-size car app.
+    // Request the user's chosen mode as v0.2.11 did; the OS controls actual bar visibility.
+    val hideTop = hideTopBar
+    val hideBottom = hideBottomBar
     val window = activity.window
     var flags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     if (hideTop) flags = flags or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_FULLSCREEN
