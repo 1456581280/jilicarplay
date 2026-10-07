@@ -1,8 +1,9 @@
-# DiPlay 0.2.13.2 connection integration
+# DiPlay 0.2.14 connection integration
 
 Connection source: upstream `7887bb7bf2b52258e663a2a4ea1332382ed80ad8` (0.2.14).
 Previous feature baseline: `8f53b27b3168aedb661e9f9bb7122ea344b75ada`.
-App version remains `0.2.13.2`, version code `36`, at the user's request.
+App version is `0.2.14`, aligned with upstream at the user's request.
+Version code increases from `36` to `37` so installed builds can upgrade.
 
 ## Connection scope
 
