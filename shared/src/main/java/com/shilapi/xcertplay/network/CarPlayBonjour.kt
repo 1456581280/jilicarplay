@@ -523,7 +523,8 @@ class CarPlayBonjour(
     }
 
     // carlito: retain the original entry point while adding per-LAN scope selection.
-    private fun applyLocalScope(address: InetAddress): InetAddress = applyLocalScope(address, null)
+    private fun applyLocalScope(address: InetAddress): InetAddress =
+        if (address is Inet6Address && address.scopeId != 0) address else applyLocalScope(address, null)
 
     private fun applyLocalScope(address: InetAddress, source: InetAddress?): InetAddress {
         val scope = (source as? Inet6Address)?.scopeId ?: advertisedAddresses.filterIsInstance<Inet6Address>()
