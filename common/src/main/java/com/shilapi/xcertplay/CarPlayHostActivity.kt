@@ -4768,22 +4768,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun applyFullscreenMode() {
         val multiWindow = isMultiWindowActive()
-        val hideTop = hideTopBar && !multiWindow
-        val hideBottom = hideBottomBar && !multiWindow
-        WindowCompat.setDecorFitsSystemWindows(window, !(hideTop && hideBottom))
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        if (hideTop) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        }
-        if (hideBottom) {
-            controller.hide(WindowInsetsCompat.Type.navigationBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.navigationBars())
-        }
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        applyVehicleSystemBars(this, hideTopBar && !multiWindow, hideBottomBar && !multiWindow)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()

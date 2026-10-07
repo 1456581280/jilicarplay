@@ -79,7 +79,7 @@ internal data class VehiclePropertyBinding(
 internal data class VehiclePropertyProfile(val model: String, val bindings: List<VehiclePropertyBinding>)
 
 internal object ReportPropertyImporter {
-    const val MAX_BYTES = 8 * 1024 * 1024
+    const val MAX_BYTES = 10 * 1024 * 1024
 
     /** Only exact published symbols can fill fields; checksum/counter/lookalike names cannot. */
     fun extract(report: String): List<VehiclePropertyBinding> {

@@ -1,6 +1,8 @@
 // carlito | DiPlay property client; vehicle implementation is in a separate GD bridge APK.
 plugins { id("com.android.library") }
 
+dependencies { implementation(libs.androidx.core.ktx) }
+
 android {
     namespace = "com.shilapi.xcertplay.vehicleprobe"
     compileSdk = 37

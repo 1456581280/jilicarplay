@@ -7,10 +7,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-/** Explicit, user-triggered upload of one redacted diagnostic report. */
-internal class DiagnosticReportTooLargeException : Exception()
+/** carlito | Shared bounded report transport for diagnostics and vehicle scans. */
+class DiagnosticReportTooLargeException : Exception()
 
-internal object DiagnosticReportUpload {
+object DiagnosticReportUpload {
     private const val UPLOAD_URL = "https://carlito.i234.me:5214/diplay-profiles/v1/reports"
     const val MAX_DESCRIPTION_LENGTH = 2_000
     private const val MAX_REPORT_BYTES = 1024 * 1024
@@ -18,15 +18,17 @@ internal object DiagnosticReportUpload {
     private const val MAX_REQUEST_BYTES = 31 * 1024
     private const val MAX_RESPONSE_BYTES = 32 * 1024
 
-    fun upload(fileName: String, issueDescription: String, report: String): String {
+    fun upload(fileName: String, issueDescription: String, report: String, maxBytes: Int = MAX_REPORT_BYTES,
+               connectionReady: (HttpURLConnection) -> Unit = {},
+               submittedAt: Long = System.currentTimeMillis()): String {
+        require(maxBytes in 1..10 * 1024 * 1024)
         val description = issueDescription.trim()
         require(description.isNotEmpty() && description.length <= MAX_DESCRIPTION_LENGTH)
         require(fileName.matches(Regex("DiPlay-[0-9]{8}-[0-9]{6}-[0-9]{3}\\.txt")))
         val reportBytes = report.toByteArray(Charsets.UTF_8)
-        if (reportBytes.size > MAX_REPORT_BYTES) throw DiagnosticReportTooLargeException()
+        if (reportBytes.size > maxBytes) throw DiagnosticReportTooLargeException()
         require(reportBytes.isNotEmpty())
         val receipt = digest(description.toByteArray(Charsets.UTF_8), byteArrayOf(0), reportBytes)
-        val submittedAt = System.currentTimeMillis()
         val chunkCount = (reportBytes.size + CHUNK_BYTES - 1) / CHUNK_BYTES
         var complete = false
         for (chunkIndex in 0 until chunkCount) {
@@ -44,7 +46,8 @@ internal object DiagnosticReportUpload {
                 .toString()
                 .toByteArray(Charsets.UTF_8)
             require(request.size in 1..MAX_REQUEST_BYTES)
-            val response = post(request)
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("Report upload cancelled")
+            val response = post(request, connectionReady)
             check(response.optBoolean("ok") && response.optString("receipt") == receipt)
             complete = response.optBoolean("complete")
         }
@@ -52,9 +55,10 @@ internal object DiagnosticReportUpload {
         return receipt
     }
 
-    private fun post(bytes: ByteArray): JSONObject {
+    private fun post(bytes: ByteArray, connectionReady: (HttpURLConnection) -> Unit): JSONObject {
         val connection = URL(UPLOAD_URL).openConnection() as HttpURLConnection
         try {
+            connectionReady(connection)
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 10_000

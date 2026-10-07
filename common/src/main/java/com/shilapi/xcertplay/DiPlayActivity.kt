@@ -246,13 +246,7 @@ class DiPlayActivity : ComponentActivity() {
 
     // carlito | The saved status-bar switch applies to the app home screen as well as CarPlay.
     private fun applyStatusBarPreference() {
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            if (AirPlayPersistence.loadHideTopBar(this@DiPlayActivity) && !isInMultiWindowMode)
-                hide(WindowInsetsCompat.Type.statusBars())
-            else show(WindowInsetsCompat.Type.statusBars())
-        }
+        applyVehicleSystemBars(this, AirPlayPersistence.loadHideTopBar(this), AirPlayPersistence.loadHideBottomBar(this))
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -707,7 +701,10 @@ class DiPlayActivity : ComponentActivity() {
                     AirPlayPersistence.saveHideTopBar(this, it)
                     applyStatusBarPreference()
                 },
-                onHideBottomBarChanged = { AirPlayPersistence.saveHideBottomBar(this, it) },
+                onHideBottomBarChanged = {
+                    AirPlayPersistence.saveHideBottomBar(this, it)
+                    applyStatusBarPreference()
+                },
             ) { label, checked, onChanged ->
                 toggle(card, getString(label), getString(R.string.hide_the_car_s_system_bars_while_carplay_is_open), checked, save = onChanged)
             }
@@ -831,7 +828,9 @@ class DiPlayActivity : ComponentActivity() {
         section(content, getString(R.string.vehicle_probe), R.drawable.ic_dp_car) { card ->
             card.addView(button(getString(R.string.vehicle_probe), false) {
                 startActivity(Intent(this, com.shilapi.xcertplay.vehicleprobe.VehicleProbeActivity::class.java)
-                    .putExtra("developer", SteeringProfiles.developerUnlocked(this)))
+                    .putExtra("developer", SteeringProfiles.developerUnlocked(this))
+                    .putExtra(EXTRA_HIDE_TOP_BAR, AirPlayPersistence.loadHideTopBar(this))
+                    .putExtra(EXTRA_HIDE_BOTTOM_BAR, AirPlayPersistence.loadHideBottomBar(this)))
             }, matchButton(0, 60))
         }
         // Cluster video does not require a BYD navigation broadcast receiver.

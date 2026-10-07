@@ -1,5 +1,8 @@
 # DiPlay 0.2.13.2 — 2026-10-07
 
+- Add one-click read-only vehicle scan, verified profile application, direct Downloads export, and durable cloud report delivery up to 10 MiB.
+- Restore legacy immersive flags from v0.2.11 and apply display preferences to the scanner window.
+
 - Restore the previously working network, hotspot, USB and Bluetooth discovery paths while keeping 0.2.13.1 display, vehicle and audio features.
 - Apply the saved top status-bar switch immediately on the home/settings screen and restore it on resume or window focus.
 - Keep signing and Android 9 compatibility; in-car behavior remains to be confirmed.

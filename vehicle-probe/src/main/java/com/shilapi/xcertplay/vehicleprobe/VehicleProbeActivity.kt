@@ -4,6 +4,7 @@ package com.shilapi.xcertplay.vehicleprobe
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -29,6 +30,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import com.shilapi.xcertplay.DiagnosticExportStore
+import com.shilapi.xcertplay.EXTRA_HIDE_TOP_BAR
+import com.shilapi.xcertplay.EXTRA_HIDE_BOTTOM_BAR
+import com.shilapi.xcertplay.applyVehicleSystemBars
 
 class VehicleProbeActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
@@ -36,13 +41,16 @@ class VehicleProbeActivity : Activity() {
     private var service: ProbeService? = null
     private var bound = false
     private var lastState: ProbeState? = null
+    private var lastCloudStatus = ""
     private var developerUnlocked = false
     private var diagnosticOpen = false
     private var exporting = false
-    private var pickingExport = false
+    private var pendingStorageAction: String? = null
     private lateinit var status: TextView
     private lateinit var detail: TextView
     private lateinit var counts: TextView
+    private lateinit var cloudStatus: TextView
+    private lateinit var retryUpload: Button
     private lateinit var scan: Button
     private lateinit var export: Button
     private lateinit var progress: ProgressBar
@@ -68,14 +76,24 @@ class VehicleProbeActivity : Activity() {
         super.onCreate(savedInstanceState)
         // carlito | Scanning is public in settings; only additional diagnostics require unlock.
         developerUnlocked = intent.getBooleanExtra("developer", false)
-        pickingExport = savedInstanceState?.getBoolean("exporting") ?: false
-        exporting = pickingExport
+        pendingStorageAction = savedInstanceState?.getString("storageAction")
+        applyFullscreenPreference()
         showHome()
+    }
+
+    // carlito | The scanner has its own window and process; forward the user's display choices.
+    private fun applyFullscreenPreference() = applyVehicleSystemBars(this,
+        intent.getBooleanExtra(EXTRA_HIDE_TOP_BAR, true), intent.getBooleanExtra(EXTRA_HIDE_BOTTOM_BAR, true))
+
+    override fun onResume() { super.onResume(); applyFullscreenPreference() }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyFullscreenPreference()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("developer", developerUnlocked)
-        outState.putBoolean("exporting", pickingExport)
+        outState.putString("storageAction", pendingStorageAction)
         super.onSaveInstanceState(outState)
     }
 
@@ -116,57 +134,119 @@ class VehicleProbeActivity : Activity() {
         counts = label("", 19).apply { setPadding(0, dp(20), 0, dp(8)); setLineSpacing(dp(8).toFloat(), 1f) }
         card.addView(status); card.addView(detail); card.addView(progress); card.addView(counts)
         column.addView(card)
-        scan = button("开始全车扫描") {
-            if (service?.state?.let { !it.loading && !it.running } == true) {
-                runCatching {
-                    val intent = Intent(this, ProbeService::class.java)
-                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
-                }.onSuccess { scan.isEnabled = false }.onFailure {
-                    Toast.makeText(this, "暂时无法开始扫描，请重试", Toast.LENGTH_LONG).show()
-                }
-            }
-        }.apply { setTextColor(Color.WHITE); backgroundTintList = android.content.res.ColorStateList.valueOf(green) }
-        export = button("导出扫描报告") { exportReport() }
+        scan = button("一键扫描并应用属性") { withDownloadsPermission("scan") }
+            .apply { setTextColor(Color.WHITE); backgroundTintList = android.content.res.ColorStateList.valueOf(green) }
+        export = button("导出扫描报告") { withDownloadsPermission("export") }
         column.addView(scan, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(24) })
         column.addView(export, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         // carlito | Reports can fill read-only property addresses without scanning the vehicle again.
         column.addView(button("车型属性配置") { showProfileMenu() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(button("查看车辆数据") { showVehicleValues() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
+        column.addView(button("扫描后如何使用属性") { showUsageHelp() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
+        cloudStatus = label("", 15).apply { setPadding(0, dp(16), 0, 0) }
+        column.addView(cloudStatus)
+        retryUpload = button("重新上传报告") {
+            val time = service?.state?.lastScan ?: 0L
+            if (time == 0L) return@button
+            retryUpload.isEnabled = false
+            io.execute {
+                val result = runCatching {
+                    if (VehicleReportDelivery.status(applicationContext, time) == "报告尚未上传云端") {
+                        val report = ProbeReports.open(applicationContext).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        VehicleReportDelivery.enqueue(applicationContext, time, report)
+                    }
+                    VehicleReportDelivery.retry(applicationContext)
+                }
+                main.post { if (!isDestroyed) {
+                    refresh()
+                    Toast.makeText(this, if (result.isSuccess) "已安排上传，联网后将自动完成" else "暂时无法安排上传，请重试", Toast.LENGTH_LONG).show()
+                } }
+            }
+        }
+        column.addView(retryUpload, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(label("扫描仅读取车辆状态，不改变车辆设置。", 14).apply { setPadding(0, dp(16), 0, 0) })
         lastState = null
         refresh()
     }
 
+    // carlito | Scan, verify and apply read-only data in one action.
+    private fun showUsageHelp() {
+        AlertDialog.Builder(this).setTitle("扫描后如何使用属性").setMessage(
+            "1. 点击“一键扫描并应用属性”，等待扫描、分析和保存完成。报告会自动保存到“下载/DiPlay”并上传云端，断网后会自动重试。Android 9 首次使用请允许存储权限。\n\n" +
+            "2. 页面会显示已应用项目数。点击“查看车辆数据”，检查车速、电量、温度、灯光等读数。暂不可用的项目会保留已有配置，不会用零值代替。\n\n" +
+            "3. 返回“投屏编辑器”，添加需要的车辆数据项目并保存布局。导航可以单独使用。\n\n" +
+            "已有配置的单位和校准会保留。新提取的属性如果只有原始值，可在“车型属性配置”核对单位和校准；程序不会猜测单位。\n\n" +
+            "车速和挡位的单位、含义都已确认后，才可使用行驶数据辅助导航。方向盘按键属性用于观察变化，按键接入请使用“方控测试”。"
+        ).setPositiveButton("知道了", null).show()
+    }
+
+    private fun startScan() {
+        if (service?.state?.let { !it.loading && !it.running } != true) return
+        runCatching {
+            val start = Intent(this, ProbeService::class.java)
+                .putExtra(EXTRA_HIDE_TOP_BAR, intent.getBooleanExtra(EXTRA_HIDE_TOP_BAR, true))
+                .putExtra(EXTRA_HIDE_BOTTOM_BAR, intent.getBooleanExtra(EXTRA_HIDE_BOTTOM_BAR, true))
+            startForegroundService(start)
+        }.onSuccess { scan.isEnabled = false }.onFailure {
+            Toast.makeText(this, "暂时无法开始扫描，请重试", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // carlito | Public Downloads on Android 9 needs a runtime storage grant, not a document picker.
+    private fun withDownloadsPermission(action: String) {
+        if (Build.VERSION.SDK_INT <= 28 && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (pendingStorageAction != null) return
+            pendingStorageAction = action
+            requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 43)
+        } else if (action == "scan") startScan() else exportReport()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 43) return
+        val action = pendingStorageAction
+        pendingStorageAction = null
+        if (action == "scan") startScan() else if (action == "export") exportReport()
+    }
+
     private fun refresh() {
         if (diagnosticOpen || !::status.isInitialized) return
         val state = service?.state ?: ProbeState()
+        val delivery = if (state.lastScan > 0 && !state.running) VehicleReportDelivery.status(applicationContext, state.lastScan) else ""
+        cloudStatus.text = delivery
+        cloudStatus.visibility = if (delivery.isEmpty()) View.GONE else View.VISIBLE
+        retryUpload.visibility = if (delivery.isNotEmpty() && delivery != "报告已上传云端") View.VISIBLE else View.GONE
+        retryUpload.isEnabled = !state.running
         export.isEnabled = state.lastScan > 0 && !exporting
-        if (state == lastState) return
+        if (state == lastState && delivery == lastCloudStatus) return
+        lastCloudStatus = delivery
         lastState = state
         scan.isEnabled = !state.loading && !state.running
-        scan.text = if (state.running) "正在扫描…" else if (state.lastScan > 0) "重新扫描" else "开始全车扫描"
+        scan.text = if (state.running) "正在处理…" else "一键扫描并应用属性"
         progress.visibility = if (state.running || state.loading) View.VISIBLE else View.GONE
         // Enumeration completes before VHAL scanning; keep a visible busy indicator until both finish.
         progress.isIndeterminate = state.total == 0 || state.completed >= state.total
         if (!progress.isIndeterminate) { progress.max = state.total; progress.progress = state.completed }
         status.text = when {
-            state.running -> "正在扫描车辆"
+            state.running -> state.stage
             state.loading -> "正在准备"
             state.error -> "本次扫描未完成"
             state.lastScan == 0L -> "准备就绪"
             state.summary.readable == 0 -> "未读取到车辆数据"
-            else -> "扫描完成"
+            else -> if (state.application?.applied == true) "属性已应用并保存" else "扫描完成"
         }
         detail.text = when {
-            state.running -> "正在读取车辆状态，完成后可导出报告。"
+            state.running -> "完成后将应用可用属性并保存报告。"
             state.loading -> "正在连接扫描服务。"
             state.error -> state.errorMessage ?: "请重试。已有报告仍可导出。"
             state.lastScan == 0L -> "点击下方按钮开始扫描。"
             state.summary.readable == 0 -> "请在设置中检查车辆访问授权后重试。"
-            else -> "上次扫描：${SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).format(Date(state.lastScan))}"
+            else -> state.application?.message ?: "上次扫描：${SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).format(Date(state.lastScan))}"
         }
         counts.visibility = if (state.lastScan > 0 && !state.running) View.VISIBLE else View.GONE
-        counts.text = "属性项目  ${state.summary.total}\n有效读数  ${state.summary.readable}    无效读数  ${state.summary.invalid}\n暂不可用  ${state.summary.unavailable}"
+        counts.text = "属性项目  ${state.summary.total}\n有效读数  ${state.summary.readable}    无效读数  ${state.summary.invalid}\n暂不可用  ${state.summary.unavailable}" +
+            (state.application?.let { "\n已应用项目  ${it.configured}    本次可读取  ${it.readable}" } ?: "")
     }
 
     private fun showSettings() {
@@ -224,20 +304,49 @@ class VehicleProbeActivity : Activity() {
     private fun exportReport() {
         if (exporting) return
         exporting = true
-        pickingExport = true
         export.isEnabled = false
         val filename = "车辆扫描-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())}.txt"
+        exportWithoutPicker(filename)
+    }
+
+    // carlito | OEMs without DocumentsUI can save to Downloads or the existing app report store.
+    private fun exportWithoutPicker(filename: String) {
+        io.execute {
+            val result = runCatching {
+                val report = ProbeReports.open(applicationContext).bufferedReader(Charsets.UTF_8).use { it.readText() }
+                DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, report)
+            }
+            main.post {
+                exporting = false
+                if (isDestroyed || isFinishing) return@post
+                refresh()
+                val saved = result.getOrNull()
+                if (saved == null) {
+                    Toast.makeText(this, "暂时无法导出，扫描报告仍已保存在应用中，请重试", Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                val inDownloads = saved.savedToDownloads
+                AlertDialog.Builder(this).setTitle("报告已保存")
+                    .setMessage(if (inDownloads) "报告已保存到“下载/DiPlay”，也可通过其他应用分享。"
+                        else "报告已保存到 DiPlay，可通过其他应用分享。")
+                    .setPositiveButton("分享报告") { _, _ -> shareReport(saved.uri) }
+                    .setNegativeButton("关闭", null).show()
+            }
+        }
+    }
+
+    private fun shareReport(uri: android.net.Uri) {
         try {
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_TITLE, filename)
-            }, 41)
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri("车辆扫描报告", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "分享扫描报告"))
         } catch (_: android.content.ActivityNotFoundException) {
-            exporting = false
-            pickingExport = false
-            refresh()
-            Toast.makeText(this, "未找到文件保存工具", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "未找到分享应用，报告已保存在 DiPlay", Toast.LENGTH_LONG).show()
+        } catch (_: SecurityException) {
+            Toast.makeText(this, "暂时无法分享，报告已保存在 DiPlay", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -249,11 +358,6 @@ class VehicleProbeActivity : Activity() {
             }
             return
         }
-        if (requestCode != 41) return
-        pickingExport = false
-        val uri = data?.data
-        if (resultCode != RESULT_OK || uri == null) { exporting = false; refresh(); return }
-        saveReport(uri)
     }
 
     private fun importReport() {
@@ -454,27 +558,6 @@ class VehicleProbeActivity : Activity() {
             }
         }
         dialog.show()
-    }
-
-    private fun saveReport(uri: android.net.Uri) {
-        val app = applicationContext
-        io.execute {
-            val result = runCatching {
-                // A file descriptor remains a snapshot even if another scan replaces the report.
-                ProbeReports.open(app).use { input ->
-                    checkNotNull(app.contentResolver.openOutputStream(uri, "w")).use { output -> input.copyTo(output) }
-                }
-            }
-            // The picker created this document for us; discard partial output on failure.
-            if (result.isFailure) runCatching { android.provider.DocumentsContract.deleteDocument(app.contentResolver, uri) }
-            main.post {
-                exporting = false
-                if (!isDestroyed) {
-                    refresh()
-                    Toast.makeText(this, if (result.isSuccess) "报告已保存" else "保存失败，请重试", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
     }
 
     @Deprecated("Uses platform back for Android 11")

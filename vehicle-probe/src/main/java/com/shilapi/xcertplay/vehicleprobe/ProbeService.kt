@@ -18,6 +18,12 @@ import android.util.Log
 import java.io.File
 import java.io.InputStream
 import java.util.concurrent.Executors
+import com.shilapi.xcertplay.DiagnosticExportStore
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import com.shilapi.xcertplay.EXTRA_HIDE_TOP_BAR
+import com.shilapi.xcertplay.EXTRA_HIDE_BOTTOM_BAR
 
 internal data class ProbeState(
     val loading: Boolean = true,
@@ -28,6 +34,8 @@ internal data class ProbeState(
     val completed: Int = 0,
     val total: Int = 0,
     val errorMessage: String? = null,
+    val stage: String = "正在扫描车辆",
+    val application: ProfileApplication? = null,
 )
 
 /** The separate GD APK scans hardware; this service stores and exports the returned report. */
@@ -47,10 +55,13 @@ class ProbeService : Service() {
                 NotificationChannel("vehicle_scan", "车辆扫描", NotificationManager.IMPORTANCE_LOW))
         }
         worker.execute {
+            runCatching { if (VehicleReportDelivery.pending(applicationContext).isNotEmpty())
+                VehicleReportDelivery.retry(applicationContext) }
             val previous = runCatching {
                 val text = openReport().bufferedReader(Charsets.UTF_8).use { it.readText() }
                 ProbeState(loading = false, summary = ProbeSummary.parse(text),
-                    lastScan = ProbeReports.file(applicationContext).lastModified())
+                    lastScan = ProbeReports.file(applicationContext).lastModified(),
+                    application = AutomaticVehicleProfile.load(applicationContext, ProbeReports.file(applicationContext).lastModified()))
             }.getOrDefault(ProbeState(loading = false))
             main.post {
                 if (!destroyed) state = if (state.running) state.copy(
@@ -64,35 +75,69 @@ class ProbeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (state.running) return START_NOT_STICKY
         val open = PendingIntent.getActivity(this, 0,
-            Intent(this, VehicleProbeActivity::class.java),
+            Intent(this, VehicleProbeActivity::class.java)
+                .putExtra(EXTRA_HIDE_TOP_BAR, intent?.getBooleanExtra(EXTRA_HIDE_TOP_BAR, true) ?: true)
+                .putExtra(EXTRA_HIDE_BOTTOM_BAR, intent?.getBooleanExtra(EXTRA_HIDE_BOTTOM_BAR, true) ?: true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, "vehicle_scan")
             else Notification.Builder(this)
         startForeground(7401, notification.setSmallIcon(R.drawable.ic_probe)
-            .setContentTitle("正在扫描车辆").setContentText("完成后可导出报告")
+            .setContentTitle("正在扫描车辆").setContentText("正在扫描并应用可用属性")
             .setContentIntent(open).setOngoing(true).build())
-        state = state.copy(loading = false, running = true, error = false, errorMessage = null, completed = 0, total = 0)
+        state = state.copy(loading = false, running = true, error = false, errorMessage = null, completed = 0, total = 0, stage = "正在扫描车辆", application = null)
         worker.execute {
             var result: Pair<ProbeSummary, Long>? = null
             var failure: String? = null
+            var application: ProfileApplication? = null
+            fun progress(stage: String) { main.post { if (!destroyed) state = state.copy(stage = stage) } }
             try {
                 VehicleBridgeClient(applicationContext).use { client ->
                     val text = client.scanReport()
                     if (Thread.currentThread().isInterrupted) throw InterruptedException("Vehicle scan cancelled")
                     val summary = ProbeSummary.parse(text)
                     ProbeReports.save(applicationContext, text)
-                    result = summary to ProbeReports.file(applicationContext).lastModified()
+                    val time = ProbeReports.file(applicationContext).lastModified()
+                    result = summary to time
+                    // carlito | Profile application errors never discard a successful scan report.
+                    application = try { AutomaticVehicleProfile.apply(applicationContext, client, text, time, ::progress) }
+                        catch (error: Exception) {
+                            Log.e("DiPlayVehicleProbe", "Profile application failed", error)
+                            val active = runCatching { client.activeProfile() }.getOrNull()
+                            ProfileApplication(time, configured = active?.bindings?.size ?: 0,
+                                message = "扫描已完成，属性自动应用未完成。已有配置保留，请检查车辆数据桥后重试。")
+                        }
+                    progress("正在保存报告")
+                    val filename = "车辆扫描-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date(time))}.txt"
+                    val exported = runCatching { DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, text) }.getOrNull()
+                    val location = when {
+                        exported?.savedToDownloads == true -> "报告已保存到“下载/DiPlay”。"
+                        exported != null -> "报告已保存在 DiPlay，允许存储权限后可再次导出到下载目录。"
+                        else -> "报告已保存在应用内，导出未完成，可点击“导出扫描报告”重试。"
+                    }
+                    application = application?.let { it.copy(message = it.message + "\n" + location) }
+                    progress("正在安排云端上传")
+                    try {
+                        VehicleReportDelivery.enqueue(applicationContext, time, text)
+                        VehicleReportDelivery.retry(applicationContext)
+                    } catch (error: Exception) {
+                        Log.e("DiPlayVehicleProbe", "Could not queue vehicle report", error)
+                    }
+                    application?.let { outcome ->
+                        runCatching { AutomaticVehicleProfile.save(applicationContext, outcome) }.onFailure {
+                            Log.e("DiPlayVehicleProbe", "Application result save failed", it)
+                        }
+                    }
                 }
             } catch (error: Exception) {
                 Log.e("DiPlayVehicleProbe", "Scan failed", error)
                 failure = if (error is SecurityException) "车辆数据桥未授权当前 DiPlay 签名，请安装正式签名版本"
-                    else error.message?.take(180) ?: "车辆数据桥扫描失败，请重试"
+                    else "车辆数据桥扫描失败，请检查安装与车辆访问授权后重试"
             } finally {
                 val completed = result
                 main.post {
                     if (!destroyed) {
                         state = if (completed == null) state.copy(loading = false, running = false, error = true, errorMessage = failure)
-                            else ProbeState(loading = false, summary = completed.first, lastScan = completed.second)
+                            else ProbeState(loading = false, summary = completed.first, lastScan = completed.second, application = application)
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                     }

@@ -63,8 +63,10 @@ class VehicleBridgeClient(context: Context) : Closeable {
         val response = service().readProperties(VehiclePropertyProfiles.encode(profile))
         check(response.getInt("schema") == 1) { "车辆数据桥版本不兼容" }
         val values = response.getBundle("values") ?: Bundle()
+        val states = response.getBundle("states") ?: Bundle()
         return profile.bindings.associate { binding -> binding.field to
-            if (values.containsKey(binding.field.name)) values.getDouble(binding.field.name).takeIf { it.isFinite() } else null }
+            if (states.getString(binding.field.name) == "READ_OK")
+                (values.get(binding.field.name) as? Number)?.toDouble()?.takeIf { it.isFinite() } else null }
     }
     fun scanReport(): String {
         val descriptor = service().openProbeReport() ?: throw IllegalStateException("车辆数据桥没有返回扫描报告")

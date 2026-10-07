@@ -13,9 +13,11 @@ import java.io.File
 import java.io.IOException
 
 /** Saves an app-owned report without depending on an OEM's document-picker activity. */
-internal object DiagnosticExportStore {
+// carlito | Share the existing provider-free exporter with the vehicle scan process.
+object DiagnosticExportStore {
     data class SavedReport(
         val uri: Uri,
+        val savedToDownloads: Boolean = false,
         val savedInApp: Boolean = false,
         val savedPath: String? = null,
     )
@@ -24,10 +26,19 @@ internal object DiagnosticExportStore {
     fun saveWithoutPicker(context: Context, fileName: String, report: String): SavedReport {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                return SavedReport(saveToDownloads(context.contentResolver, fileName, report))
+                return SavedReport(saveToDownloads(context.contentResolver, fileName, report), savedToDownloads = true)
             } catch (_: Exception) {
                 // Preserve the report even when the OEM's public storage provider is absent.
             }
+        }
+        // carlito | Android 9 writes public Downloads after the user's storage grant.
+        if (Build.VERSION.SDK_INT <= 28 && context.checkSelfPermission(
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            try {
+                @Suppress("DEPRECATION")
+                val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "DiPlay")
+                return saveInDirectory(context, directory, fileName, report, publicDownload = true)
+            } catch (_: Exception) { /* Keep the private report when public storage is unavailable. */ }
         }
         try {
             // Use Android's package-specific directory, including debug application IDs.
@@ -48,6 +59,7 @@ internal object DiagnosticExportStore {
         fileName: String,
         report: String,
         savedInApp: Boolean = false,
+        publicDownload: Boolean = false,
     ): SavedReport {
         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Report storage is unavailable")
         // Each export has a new URI: an earlier share grant cannot read a later report.
@@ -56,9 +68,9 @@ internal object DiagnosticExportStore {
             file.writeText(report, Charsets.UTF_8)
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.diagnostic-reports", file)
             // Retain only the newest eight reports; never prune the export being returned.
-            directory.listFiles()?.filter { it != file && it.isFile }
+            if (!publicDownload) directory.listFiles()?.filter { it != file && it.isFile }
                 ?.sortedByDescending { it.lastModified() }?.drop(7)?.forEach { it.delete() }
-            return SavedReport(uri, savedInApp = savedInApp, savedPath = if (savedInApp) null else file.absolutePath)
+            return SavedReport(uri, savedToDownloads = publicDownload, savedInApp = savedInApp, savedPath = if (savedInApp) null else file.absolutePath)
         } catch (error: Exception) {
             file.delete()
             throw error
