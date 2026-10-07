@@ -19,8 +19,12 @@ internal enum class VehicleAudioRole(val label: Int, val usage: Int, val factory
 
 internal object VehicleAudioRoutes {
     private fun prefs(context: Context) = context.getSharedPreferences("vehicle_audio_routes", Context.MODE_PRIVATE)
-    fun get(context: Context, role: VehicleAudioRole): AudioOutputDevice? = if (role == VehicleAudioRole.NAVIGATION)
-        AirPlayPersistence.loadNavigationOutputDevice(context) else AudioOutputDevice.decode(prefs(context).getString(role.name, null))
+    // carlito | Only navigation and media are configurable; old per-call/microphone overrides are ignored.
+    fun get(context: Context, role: VehicleAudioRole): AudioOutputDevice? = when (role) {
+        VehicleAudioRole.NAVIGATION -> AirPlayPersistence.loadNavigationOutputDevice(context)
+        VehicleAudioRole.MEDIA -> AudioOutputDevice.decode(prefs(context).getString(role.name, null))
+        else -> null
+    }
     fun set(context: Context, role: VehicleAudioRole, device: AudioOutputDevice?) {
         if (role == VehicleAudioRole.NAVIGATION) {
             AirPlayPersistence.saveNavigationOutputDevice(context, device)
@@ -30,7 +34,6 @@ internal object VehicleAudioRoutes {
             if (role == VehicleAudioRole.MEDIA && device != null) AirPlayPersistence.saveMediaAudioChannel(context, 0)
         }
     }
-    fun load(context: Context) = AudioOutputRoutes(get(context, VehicleAudioRole.MEDIA), get(context, VehicleAudioRole.NAVIGATION),
-        get(context, VehicleAudioRole.PHONE), get(context, VehicleAudioRole.ASSISTANT), get(context, VehicleAudioRole.RINGTONE),
-        get(context, VehicleAudioRole.PHONE_MICROPHONE), get(context, VehicleAudioRole.ASSISTANT_MICROPHONE))
+    fun load(context: Context) = AudioOutputRoutes(
+        media = get(context, VehicleAudioRole.MEDIA), navigation = get(context, VehicleAudioRole.NAVIGATION))
 }

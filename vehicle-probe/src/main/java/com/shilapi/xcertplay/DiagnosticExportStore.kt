@@ -26,6 +26,9 @@ object DiagnosticExportStore {
 
     /** Android 9 and OEMs without working Downloads storage can still export privately. */
     fun saveWithoutPicker(context: Context, fileName: String, report: String, shareable: Boolean = true): SavedReport {
+        // carlito | Separate fallback folders prevent scan retention from pruning connection logs.
+        val reportDirectory = if (fileName.startsWith("DiPlay-Vehicle-") || fileName.startsWith("车辆扫描-"))
+            "vehicle-reports" else "diagnostic-reports"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 return SavedReport(saveToDownloads(context.contentResolver, fileName, report), savedToDownloads = true)
@@ -51,12 +54,12 @@ object DiagnosticExportStore {
             // No storage permission or document-picker activity is needed.
             val externalFiles = context.getExternalFilesDir(null)
             if (externalFiles != null) {
-                return saveInDirectory(context, File(externalFiles, "diagnostic-reports"), fileName, report, shareable = shareable)
+                return saveInDirectory(context, File(externalFiles, reportDirectory), fileName, report, shareable = shareable)
             }
         } catch (_: Exception) {
             // A missing, read-only or full external volume must not prevent export.
         }
-        return saveInDirectory(context, File(context.filesDir, "diagnostic-reports"), fileName, report, savedInApp = true, shareable = shareable)
+        return saveInDirectory(context, File(context.filesDir, reportDirectory), fileName, report, savedInApp = true, shareable = shareable)
     }
 
     private fun saveInDirectory(

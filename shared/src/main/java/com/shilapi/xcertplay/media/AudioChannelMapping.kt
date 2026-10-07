@@ -5,6 +5,10 @@ import android.media.AudioManager
 // carlito | FaceTime uses the same communication resources as a telephone call.
 internal fun isPhoneAudio(type: String) = type.equals("telephony", true) || type.equals("facetime", true)
 
+// carlito | CarPlay default carries guidance; alert/compatibility remain on the shared media output.
+internal fun isVehicleNavigationAudio(type: String): Boolean =
+    type.equals("default", true) || type.equals("guidance", true) || type.equals("navigation", true)
+
 internal enum class AudioChannelMappingMode {
     MOBILE_COMPATIBLE,
     AUTOMOTIVE_BUS,

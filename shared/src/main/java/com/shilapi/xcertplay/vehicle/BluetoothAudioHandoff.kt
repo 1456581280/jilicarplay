@@ -19,7 +19,10 @@ import java.io.Closeable
 import java.util.Locale
 
 @SuppressLint("MissingPermission")
-internal class BluetoothAudioHandoff(context: Context, address: String, private val report: (String) -> Unit) : Closeable {
+internal class BluetoothAudioHandoff(
+    context: Context, address: String, private val report: (String) -> Unit,
+    private val onPlaying: ((Boolean) -> Unit)? = null,
+) : Closeable {
     private val app = context.applicationContext
     private val adapter = app.getSystemService(BluetoothManager::class.java)?.adapter
     private val peer = address.uppercase(Locale.US)
@@ -31,14 +34,31 @@ internal class BluetoothAudioHandoff(context: Context, address: String, private 
     @Volatile private var suppressed = true
     private var lastDisconnectAt = 0L
     private var unavailable = false
+    private var playing = false
+    private var playbackQueryUnavailable = false
+    private val playbackPoll = object : Runnable {
+        override fun run() = synchronized(this@BluetoothAudioHandoff) {
+            if (closed || onPlaying == null) return@synchronized
+            refreshPlaying()
+            main.postDelayed(this, 1_000L)
+        }
+    }
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action != ACTION_CONNECTION || closed) return
+            if (intent == null || intent.action !in setOf(ACTION_CONNECTION, ACTION_PLAYING) || closed) return
             @Suppress("DEPRECATION") val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
             if (!device.address.equals(peer, true)) return
-            when (intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)) {
-                BluetoothProfile.STATE_CONNECTED -> disconnectPeer()
-                BluetoothProfile.STATE_DISCONNECTED -> if (!suppressed) proxy?.let { restoreActive(it) }
+            if (intent.action == ACTION_PLAYING) {
+                val state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)
+                // Accept only this session's connected phone and a known platform playback state.
+                val connected = runCatching { proxy?.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED }.getOrDefault(false)
+                if (connected && state in setOf(STATE_PLAYING, STATE_NOT_PLAYING)) publishPlaying(state == STATE_PLAYING)
+            } else when (intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)) {
+                BluetoothProfile.STATE_CONNECTED -> { disconnectPeer(); refreshPlaying() }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    publishPlaying(false)
+                    if (!suppressed) proxy?.let { restoreActive(it) }
+                }
             }
         }
     }
@@ -57,7 +77,7 @@ internal class BluetoothAudioHandoff(context: Context, address: String, private 
         try {
             synchronized(leases) { leases.getOrPut(peer) { Lease() }.owners.add(this) }
             held = true
-            val filter = IntentFilter(ACTION_CONNECTION)
+            val filter = IntentFilter(ACTION_CONNECTION).apply { if (onPlaying != null) addAction(ACTION_PLAYING) }
             if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
             else app.registerReceiver(receiver, filter)
             registered = true
@@ -65,14 +85,43 @@ internal class BluetoothAudioHandoff(context: Context, address: String, private 
                 override fun onServiceConnected(profile: Int, connected: BluetoothProfile) = synchronized(this@BluetoothAudioHandoff) {
                     if (closed) { restoreThenClose(connected); return@synchronized }
                     proxy = connected
+                    playbackQueryUnavailable = false
+                    refreshPlaying()
                     if (suppressed) disconnectPeer() else restoreActive(connected)
                 }
-                override fun onServiceDisconnected(profile: Int) = synchronized(this@BluetoothAudioHandoff) { proxy = null }
+                override fun onServiceDisconnected(profile: Int) = synchronized(this@BluetoothAudioHandoff) { proxy = null; publishPlaying(false) }
             }, A2DP_SINK) == true
+            if (requested && onPlaying != null) main.post(playbackPoll)
             if (!requested) { report("Audio: Bluetooth music handoff unavailable: sink profile; retaining focus routing"); close() }
         } catch (error: Exception) {
             report("Audio: Bluetooth music handoff unavailable: ${error.javaClass.simpleName}"); close()
         }
+    }
+
+    // carlito | AOSP A2DP_SINK exposes isA2dpPlaying; hidden/unsupported queries keep CarPlay fallback.
+    @Synchronized private fun refreshPlaying() {
+        if (closed || onPlaying == null) return
+        val profile = proxy ?: run { publishPlaying(false); return }
+        try {
+            val device = profile.connectedDevices.firstOrNull { it.address.equals(peer, true) }
+                ?: run { publishPlaying(false); return }
+            if (!playbackQueryUnavailable) {
+                val value = profile.javaClass.getMethod("isA2dpPlaying", BluetoothDevice::class.java).invoke(profile, device) as? Boolean
+                if (value != null) publishPlaying(value) else publishPlaying(false)
+            }
+        } catch (error: Exception) {
+            // Future authenticated platform playback broadcasts may still establish playback.
+            val firstFailure = !playbackQueryUnavailable
+            playbackQueryUnavailable = true
+            publishPlaying(false)
+            if (firstFailure) report("Audio: Bluetooth playback state unavailable: ${error.javaClass.simpleName}; retaining CarPlay fallback")
+        }
+    }
+
+    @Synchronized private fun publishPlaying(value: Boolean) {
+        if (onPlaying == null || playing == value) return
+        playing = value
+        runCatching { onPlaying?.invoke(value) }
     }
 
     @Synchronized private fun disconnectPeer() {
@@ -133,6 +182,8 @@ internal class BluetoothAudioHandoff(context: Context, address: String, private 
     @Synchronized override fun close() {
         if (closed) return
         closed = true
+        main.removeCallbacks(playbackPoll)
+        publishPlaying(false)
         if (registered) runCatching { app.unregisterReceiver(receiver) }
         registered = false
         if (held) synchronized(leases) {
@@ -149,6 +200,9 @@ internal class BluetoothAudioHandoff(context: Context, address: String, private 
     private companion object {
         val leases = HashMap<String, Lease>()
         const val A2DP_SINK = 11
+        const val STATE_PLAYING = 10
+        const val STATE_NOT_PLAYING = 11
+        const val ACTION_PLAYING = "android.bluetooth.a2dp-sink.profile.action.PLAYING_STATE_CHANGED"
         const val ACTION_CONNECTION = "android.bluetooth.a2dp-sink.profile.action.CONNECTION_STATE_CHANGED"
     }
 }

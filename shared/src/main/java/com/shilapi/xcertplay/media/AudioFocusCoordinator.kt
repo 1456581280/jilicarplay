@@ -15,6 +15,7 @@ internal class AudioFocusCoordinator(
     private val enabled: Boolean,
     private val report: (String) -> Unit = {},
     private val factoryRouting: Boolean = false,
+    private val unifiedMediaOutput: Boolean = false,
     private val onOwnershipChanged: (Boolean) -> Unit = {},
 ) : Closeable {
     private data class Entry(val channel: AudioChannel, val attributes: AudioAttributes)
@@ -30,6 +31,7 @@ internal class AudioFocusCoordinator(
     private var mediaSuppressed = false
     private var mediaPlaying: Boolean? = null
     private var externalCall = false
+    private var nativeBluetoothPlaying = false
     private var ownership: Boolean? = null
     private var closed = false
 
@@ -48,7 +50,7 @@ internal class AudioFocusCoordinator(
     }
 
     @Synchronized fun acquire(track: AudioTrack, channel: AudioChannel, attributes: AudioAttributes) {
-        if (closed || !enabled || manager == null) return
+        if (closed) return
         active[track] = Entry(channel, attributes)
         if (channel == AudioChannel.MEDIA) mediaAttributes = attributes
         refreshRequest()
@@ -79,7 +81,19 @@ internal class AudioFocusCoordinator(
 
     private fun addCapture(channel: AudioChannel, usage: Int) {
         captures[channel] = Entry(channel, active.values.firstOrNull { it.channel == channel }?.attributes
-            ?: AudioAttributes.Builder().setUsage(usage).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            ?: AudioAttributes.Builder().setUsage(if (unifiedMediaOutput) AudioAttributes.USAGE_MEDIA else usage)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+    }
+
+    // carlito | Connection alone is not proof of music. Keep navigation, calls, Siri and capture alive.
+    @Synchronized fun setNativeBluetoothPlaying(playing: Boolean) {
+        if (closed || nativeBluetoothPlaying == playing) return
+        // carlito | This explicit Bluetooth mode promises CarPlay fallback even for an unchanged media stream.
+        // Only a confirmed native-playing -> stopped transition retries; ordinary native-source focus loss stays suppressed.
+        if (!playing) mediaSuppressed = false
+        nativeBluetoothPlaying = playing
+        refreshRequest()
+        runCatching { report("Audio: native Bluetooth music playing=$playing") }
     }
 
     @Synchronized fun setExternalCall(active: Boolean) {
@@ -111,12 +125,13 @@ internal class AudioFocusCoordinator(
     }
 
     private fun refreshRequest() {
-        if (closed || !enabled || manager == null) return
+        if (closed) return
+        if (!enabled || manager == null) { applyVolumes(); return }
         if (externalCall) { applyVolumes(); return }
         val primary = (active.values + captures.values).filter {
-            it.channel != AudioChannel.NAVIGATION && (it.channel != AudioChannel.MEDIA || !mediaSuppressed && mediaPlaying != false)
+            it.channel != AudioChannel.NAVIGATION && (it.channel != AudioChannel.MEDIA || !nativeBluetoothPlaying && !mediaSuppressed && mediaPlaying != false)
         }.maxByOrNull { it.channel.priority() }
-            ?: mediaAttributes?.takeIf { !mediaSuppressed && mediaPlaying != false }?.let { Entry(AudioChannel.MEDIA, it) }
+            ?: mediaAttributes?.takeIf { !nativeBluetoothPlaying && !mediaSuppressed && mediaPlaying != false }?.let { Entry(AudioChannel.MEDIA, it) }
             ?: active.values.firstOrNull { it.channel == AudioChannel.NAVIGATION }
         if (primary == null) { abandonRequest(); applyVolumes(); return }
         if (request != null && requestedChannel == primary.channel) { applyVolumes(); return }
@@ -148,9 +163,13 @@ internal class AudioFocusCoordinator(
     private fun applyVolumes() {
         val navigation = active.values.any { it.channel == AudioChannel.NAVIGATION }
         active.forEach { (track, entry) ->
+            if (!enabled || manager == null) {
+                runCatching { track.setVolume(if (nativeBluetoothPlaying && entry.channel == AudioChannel.MEDIA) 0f else 1f) }
+                return@forEach
+            }
             val local = when {
                 externalCall -> 0f
-                entry.channel == AudioChannel.MEDIA && (mediaSuppressed || mediaPlaying == false) -> 0f
+                entry.channel == AudioChannel.MEDIA && (nativeBluetoothPlaying || mediaSuppressed || mediaPlaying == false) -> 0f
                 requestedChannel in setOf(AudioChannel.PHONE, AudioChannel.ASSISTANT, AudioChannel.RINGTONE) && entry.channel != requestedChannel -> 0f
                 entry.channel == AudioChannel.MEDIA && navigation -> DUCKED_VOLUME
                 else -> 1f

@@ -69,6 +69,8 @@ class AndroidMediaSink(
     private val navigationOutputDevice: AudioOutputDevice? = null,
     private val audioOutputRoutes: AudioOutputRoutes = AudioOutputRoutes(),
     onAudioOwnershipChanged: (Boolean) -> Unit = {},
+    private val unifiedMediaOutput: Boolean = false,
+    private val bluetoothOutput: Boolean = false,
 ) : MediaSink {
     private val appContext = context?.applicationContext
     private val factoryAudio = appContext?.let(GeelyFactoryCarPlay::load)
@@ -84,7 +86,8 @@ class AndroidMediaSink(
         appContext,
         audioFocusEnabled,
         onAudioDiagnostic,
-        factoryRouting = factoryAudio != null,
+        factoryRouting = factoryAudio != null && !bluetoothOutput,
+        unifiedMediaOutput = unifiedMediaOutput,
         onOwnershipChanged = { owned -> ownsAudio = owned; audioOwnershipListener?.invoke(owned) },
     )
     private val screenStateLock = Any()
@@ -241,6 +244,7 @@ class AndroidMediaSink(
     }
 
     override fun onAudioStarted(id: AudioStreamId, format: AudioFormat, firstSample: Int) {
+        if (closed) return
         if (isPhoneAudio(format.audioType)) synchronized(telephonyAudioTypes) {
             telephonyAudioTypes.add(id)
         }
@@ -250,6 +254,7 @@ class AndroidMediaSink(
     }
 
     override fun onAudioRtp(id: AudioStreamId, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        if (closed) return
         audioRenderer(id, format).submit(rtp, sample)
     }
 
@@ -326,12 +331,13 @@ class AndroidMediaSink(
             (audioRenderers.values + closing).any { it.format.audioType.equals("speechrecognition", true) }
         val assistantVoiceDevice = audioOutputRoutes.assistant?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
             audioOutputRoutes.assistantMicrophone?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-        val needCommunication = phone || assistant && assistantVoiceDevice
+        // carlito | Media output must not switch global playback into earpiece/SCO communication mode.
+        val needCommunication = !unifiedMediaOutput && (phone || assistant && assistantVoiceDevice)
         val hadCommunication = communicationRoute.held()
         val external = communicationRoute.externalCall()
         if (needCommunication && !external) communicationRoute.acquire(
-            if (phone) audioOutputRoutes.phone else audioOutputRoutes.assistant,
-            if (phone) audioOutputRoutes.phoneMicrophone else audioOutputRoutes.assistantMicrophone)
+            if (unifiedMediaOutput) audioOutputRoutes.media else if (phone) audioOutputRoutes.phone else audioOutputRoutes.assistant,
+            if (unifiedMediaOutput) null else if (phone) audioOutputRoutes.phoneMicrophone else audioOutputRoutes.assistantMicrophone)
         audioFocusCoordinator.setExternalCall(communicationRoute.externalCall())
         audioFocusCoordinator.setMicrophones(
             pendingMicrophones.values.any { isPhoneAudio(it.config.audioType) },
@@ -355,8 +361,9 @@ class AndroidMediaSink(
             try {
                 val config = pending.config
                 val uplink = MicrophoneUplink(config, onAudioDiagnostic,
-                    factorySource = factoryAudio?.microphoneSource(config.audioType, config.sampleRate, wirelessAudio),
-                    preferredInput = audioOutputRoutes.microphone(config.audioType), audioManager = audioManager, counters = pending.counters)
+                    factorySource = if (unifiedMediaOutput) null else factoryAudio?.microphoneSource(config.audioType, config.sampleRate, wirelessAudio),
+                    preferredInput = if (unifiedMediaOutput) null else audioOutputRoutes.microphone(config.audioType),
+                    audioManager = audioManager, counters = pending.counters)
                 if (uplink.start() && !closed && pendingMicrophones[id] === pending) microphoneUplinks[id] = ActiveMicrophone(pending, uplink)
                 else { uplink.close(); pending.retryAt = android.os.SystemClock.elapsedRealtime() + 5_000L }
             } catch (error: Exception) {
@@ -441,6 +448,7 @@ class AndroidMediaSink(
             audioManager,
             navigationOutputDevice,
             audioOutputRoutes,
+            unifiedMediaOutput,
             onReleased = { renderer ->
                 val callReleased = synchronized(audioModeLock) { closingCommunicationRenderers.remove(renderer) }
                 if (callReleased) finishCommunication(force = true)
@@ -448,7 +456,14 @@ class AndroidMediaSink(
         ).also { audioRenderers[id] = it }
     }
 
-    fun onMediaPlaying(playing: Boolean) = audioFocusCoordinator.onMediaPlaying(playing)
+    // carlito | Never drop negotiated streams or microphones. Only confirmed native music yields locally.
+    fun setNativeBluetoothPlaying(playing: Boolean) {
+        if (bluetoothOutput) audioFocusCoordinator.setNativeBluetoothPlaying(playing)
+    }
+
+    fun onMediaPlaying(playing: Boolean) {
+        audioFocusCoordinator.onMediaPlaying(playing)
+    }
 }
 
 /** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
@@ -844,6 +859,7 @@ private class AudioRenderer(
     private val audioManager: AudioManager?,
     private val navigationOutputDevice: AudioOutputDevice?,
     private val audioOutputRoutes: AudioOutputRoutes,
+    private val unifiedMediaOutput: Boolean,
     private val onReleased: (AudioRenderer) -> Unit,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
@@ -1141,10 +1157,14 @@ private class AudioRenderer(
     }
 
     /** 0 uses usage-based routing; 1–20 attempt legacy stream types supported by the head unit. */
-    private fun preferredOutput(channel: AudioChannel): AudioOutputDevice? = audioOutputRoutes.device(channel)
+    // carlito | Physical output is shared; logical PHONE/ASSISTANT roles retain transient focus priority.
+    private fun outputChannel(channel: AudioChannel): AudioChannel =
+        if (unifiedMediaOutput && channel != AudioChannel.NAVIGATION) AudioChannel.MEDIA else channel
+
+    private fun preferredOutput(channel: AudioChannel): AudioOutputDevice? = audioOutputRoutes.device(outputChannel(channel))
         ?: navigationOutputDevice.takeIf { channel == AudioChannel.NAVIGATION }
 
-    private fun channelOverride(channel: AudioChannel): Int = if (preferredOutput(channel) != null) 0 else when (channel) {
+    private fun channelOverride(channel: AudioChannel): Int = if (preferredOutput(channel) != null) 0 else when (outputChannel(channel)) {
         AudioChannel.MEDIA -> mediaChannel
         AudioChannel.NAVIGATION -> navigationChannel
         else -> 0
@@ -1168,6 +1188,15 @@ private class AudioRenderer(
     }
 
     private fun mappedSelection(): AudioChannelSelection {
+        if (unifiedMediaOutput && isVehicleNavigationAudio(format.audioType)) {
+            return AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH)
+        }
+        if (unifiedMediaOutput) return when (format.audioType.lowercase()) {
+            "telephony", "facetime" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
+            "speechrecognition" -> AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
+            "ringtone", "ring", "alert" -> AudioChannelSelection(AudioChannel.RINGTONE, AudioContentType.SPEECH)
+            else -> AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
+        }
         if (factoryAudio != null && format.audioType.equals("alert", true)) {
             return AudioChannelSelection(AudioChannel.RINGTONE, AudioContentType.SPEECH)
         }
@@ -1185,12 +1214,13 @@ private class AudioRenderer(
     }
 
     private fun audioAttributesFor(selection: AudioChannelSelection): AudioAttributes {
-        val usage = usageFor(selection.channel)
+        val routedChannel = outputChannel(selection.channel)
+        val usage = usageFor(routedChannel)
         val attributes = AudioAttributes.Builder().setUsage(usage)
             .setContentType(contentTypeFor(selection.contentType)).build()
         if (attributes.usage == usage) return attributes
         Log.w(TAG, "Factory audio usage $usage rejected; using Android usage")
-        return AudioAttributes.Builder().setUsage(standardUsageFor(selection.channel))
+        return AudioAttributes.Builder().setUsage(standardUsageFor(routedChannel))
             .setContentType(contentTypeFor(selection.contentType)).build()
     }
 

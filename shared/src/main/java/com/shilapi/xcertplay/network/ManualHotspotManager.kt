@@ -11,10 +11,10 @@ import android.util.Log
 import com.shilapi.xcertplay.orchestration.ManualHotspotBand
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.transport.Iap2WirelessSecurity
-import com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.NetworkInterface
+import java.util.Collections
 
 /**
  * Attaches to a hotspot that is already running on this device.
@@ -26,27 +26,23 @@ import java.net.NetworkInterface
  */
 class ManualHotspotManager(
     context: Context,
-    ssid: String?,
-    passphrase: String?,
+    ssid: String,
+    passphrase: String,
     band: ManualHotspotBand,
     channel: Int,
     security: ManualHotspotSecurity,
-    private val preferSystemConfiguration: Boolean = false,
     private val onDiagnostic: (String) -> Unit = {},
     private val isCancelled: () -> Boolean = { false },
 ) : WirelessHotspotManager {
     private val appContext = context.applicationContext
-    // carlito: use the verified APK's interface policy for detected Geely head units.
-    private val geelyCompatibility = GeelyFactoryCarPlay.load(appContext) != null
     private val interfaces = ManualHotspotInterfaces(appContext, onDiagnostic)
     private val waitLock = Object()
     private var confirmed: HotspotSelection? = null
-    private var confirmedAddresses: List<HotspotSelection> = emptyList()
     private var lastSampleLog = emptyList<String>()
     private val wifiManager = appContext.getSystemService(WifiManager::class.java)
         ?: throw IllegalStateException("WifiManager is unavailable")
-    private val expectedSsid = ssid?.takeIf { it.isNotBlank() }
-    private val passphrase = passphrase.orEmpty()
+    private val expectedSsid = ssid
+    private val passphrase = passphrase
     private val expectedBand = band
     private val expectedChannel = channel
     private val expectedSecurity = security.toIap2Security()
@@ -55,18 +51,17 @@ class ManualHotspotManager(
     private var closed = false
 
     init {
-        require(expectedSsid == null || '\u0000' !in expectedSsid) { "ssid must not contain U+0000" }
-        require('\u0000' !in this.passphrase) { "passphrase must not contain U+0000" }
-        require(this.passphrase.isEmpty() || this.passphrase.length in 8..63) {
+        require(expectedSsid.isNotBlank()) { "ssid must not be blank" }
+        require('\u0000' !in expectedSsid) { "ssid must not contain U+0000" }
+        require('\u0000' !in passphrase) { "passphrase must not contain U+0000" }
+        require(passphrase.isEmpty() || passphrase.length in 8..63) {
             "passphrase must be empty or between 8 and 63 characters"
         }
         require(channel in 0..196) { "channel must be 0 or in 1..196" }
-        require((preferSystemConfiguration && expectedSsid == null) ||
-            expectedSecurity == Iap2WirelessSecurity.NONE || this.passphrase.isNotEmpty()) {
+        require(expectedSecurity == Iap2WirelessSecurity.NONE || passphrase.isNotEmpty()) {
             "passphrase is required for secured manual hotspots"
         }
-        require((preferSystemConfiguration && expectedSsid == null) ||
-            expectedSecurity != Iap2WirelessSecurity.NONE || this.passphrase.isEmpty()) {
+        require(expectedSecurity != Iap2WirelessSecurity.NONE || passphrase.isEmpty()) {
             "passphrase must be empty for open manual hotspots"
         }
     }
@@ -77,40 +72,21 @@ class ManualHotspotManager(
         }
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
 
-        // carlito: explicit saved credentials belong to the user's chosen hotspot.
-        // A second OEM hotspot's readable configuration must not silently replace them.
-        val systemConfiguration = readApConfiguration()
-        val useSystemConfiguration = preferSystemConfiguration && expectedSsid == null
-        if (!useSystemConfiguration && !geelyCompatibility && systemConfiguration != null &&
-            expectedSsid != null && systemConfiguration.ssid != expectedSsid
-        ) {
+        val apConfiguration = readApConfiguration()
+        if (apConfiguration != null && apConfiguration.ssid != expectedSsid) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
                 "Manual hotspot SSID does not match the active local AP configuration: " +
-                    "'${systemConfiguration.ssid}'",
+                    "'${apConfiguration.ssid}'",
             )
         }
-        val apConfiguration = systemConfiguration?.takeIf {
-            useSystemConfiguration || expectedSsid == null || it.ssid == expectedSsid
-        }
-        onDiagnostic("Manual hotspot systemConfigReadable=${systemConfiguration != null} " +
-            "systemConfigMatchesSaved=${systemConfiguration?.let { it.ssid == expectedSsid }}")
-        if (!useSystemConfiguration) validateApConfiguration(apConfiguration)
-        val activeSsid = when {
-            useSystemConfiguration && apConfiguration != null -> apConfiguration.ssid
-            expectedSsid != null -> expectedSsid
-            apConfiguration != null -> apConfiguration.ssid
-            else -> throw WirelessStartupException(
-                WirelessStartupFailure.HOTSPOT_CONFIGURATION,
-                "The active hotspot configuration is not readable",
-            )
-        }
+        validateApConfiguration(apConfiguration)
 
         // 只在候选证据变化时记录，避免每 250ms 重复输出。
         val selected = ManualHotspotReadiness(
             sample = {
                 interfaces.sample().also { snapshot ->
                     val messages = mutableListOf<String>()
-                    selectHotspotInterface(snapshot, geelyCompatibility, messages::add)
+                    selectHotspotInterface(snapshot, messages::add)
                     if (messages != lastSampleLog) {
                         messages.forEach(onDiagnostic)
                         lastSampleLog = messages
@@ -119,28 +95,17 @@ class ManualHotspotManager(
             },
             cancelled = { closed || isCancelled() },
             pause = { millis -> synchronized(waitLock) { if (!closed && !isCancelled()) waitLock.wait(millis) } },
-            geelyCompatibility = geelyCompatibility,
             log = {},
         ).await(timeoutMillis)
         confirmed = selected
-        confirmedAddresses = manualHotspotAddresses(interfaces.sample(), selected, geelyCompatibility)
-        if (confirmedAddresses.none { it.sameAddress(selected) }) {
-            throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
-                "Hotspot addresses changed during startup")
-        }
-        confirmedAddresses.forEach { path ->
-            onDiagnostic("Manual hotspot listener path iface=${path.name} index=${path.index} " +
-                "family=${if (path.address is Inet6Address) "IPv6" else "IPv4"} " +
-                "scope=${(path.address as? Inet6Address)?.scopeId ?: 0}")
-        }
         onDiagnostic("hotspot interface confirmed iface=${selected.name} index=${selected.index} atNs=${System.nanoTime()}")
         val network = NetworkInterface.getByName(selected.name)
         val localInterface = LocalHotspotInterface(selected.name, selected.address,
             runCatching { network?.hardwareAddress?.toMacAddressString() }.getOrNull()
                 ?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
                 ?: HotspotInterfaceBssid.read(selected.name))
-        val connectionFrequency = frequencyFromConnectionInfo(activeSsid)
-        val scanFrequency = frequencyFromScanResult(localInterface, activeSsid)
+        val connectionFrequency = frequencyFromConnectionInfo()
+        val scanFrequency = frequencyFromScanResult(localInterface)
         val channel = observedManualHotspotChannel(
             apChannel = apConfiguration?.channel ?: 0,
             connectionFrequencyMHz = connectionFrequency,
@@ -153,20 +118,18 @@ class ManualHotspotManager(
             scanFrequency != null -> scanFrequency
             else -> null
         }
-        val security = if (useSystemConfiguration) apConfiguration?.security ?: expectedSecurity else expectedSecurity
-        val systemPassphrase = apConfiguration?.passphrase
-            ?.takeIf { it.length in 8..63 && '\u0000' !in it }
-        val effectivePassphrase = when (security) {
-            Iap2WirelessSecurity.NONE -> ""
-            else -> if (useSystemConfiguration) systemPassphrase.orEmpty() else passphrase
-        }
+        val security = apConfiguration?.security ?: expectedSecurity
+        // Keep the existing IPv4-first endpoint selection and also publish the selected AP's
+        // scoped IPv6 address, using the same dual-stack policy as existing Wi-Fi connections.
+        val hostAddresses = network?.let {
+            existingWifiHostAddresses(Collections.list(it.inetAddresses), selected.index)
+        }?.takeIf { it.isNotEmpty() } ?: listOfNotNull(localInterface.hostAddress)
         onDiagnostic("Manual hotspot configReadable=${apConfiguration != null} " +
             "security=$security channelKnown=${channel > 0} " +
-            "credentialsSource=${if (useSystemConfiguration) "system" else "saved"} " +
-            "savedPasswordMatchesSystem=${systemPassphrase?.let { it == passphrase }} " +
             "hardwareAddressKnown=${localInterface.hardwareAddress != null} iface=${localInterface.name} " +
-            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"}")
-        if (security != Iap2WirelessSecurity.NONE && effectivePassphrase.isEmpty()) {
+            "family=${if (localInterface.hostAddress is Inet6Address) "IPv6" else "IPv4"} " +
+            "mdnsFamilies=${hostAddresses.joinToString("+") { address -> if (address is Inet6Address) "IPv6" else "IPv4" }}")
+        if (security != Iap2WirelessSecurity.NONE && passphrase.isEmpty()) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot is secured but no passphrase was provided")
         }
 
@@ -180,18 +143,22 @@ class ManualHotspotManager(
         }
         val observedBandLabel = wifiBandLabel(apConfiguration?.band)
         return WirelessHotspotInfo(
-            ssid = activeSsid,
-            passphrase = effectivePassphrase,
+            ssid = expectedSsid,
+            passphrase = passphrase,
             security = security,
             channel = channel,
             frequencyMHz = frequencyMHz,
             bssid = localInterface.hardwareAddress,
             interfaceName = localInterface.name,
             hostAddress = localInterface.hostAddress,
-            // carlito: a preferred band is not evidence of the OEM hotspot's running band.
-            bandLabel = frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto",
+            hostAddresses = hostAddresses,
+            bandLabel = when (expectedBand) {
+                ManualHotspotBand.GHZ_2_4 -> "2.4 GHz"
+                ManualHotspotBand.GHZ_5 -> "5 GHz"
+                ManualHotspotBand.AUTO ->
+                    frequencyMHz?.let(::bandLabel) ?: observedBandLabel ?: "Auto"
+            },
             backend = WirelessHotspotBackend.MANUAL_HOTSPOT,
-            hostAddresses = confirmedAddresses.map { it.address },
         )
     }
 
@@ -199,13 +166,8 @@ class ManualHotspotManager(
         val expected = confirmed ?: throw WirelessStartupException(
             WirelessStartupFailure.HOTSPOT_NOT_READY, "Hotspot network is not ready",
         )
-        val snapshot = interfaces.sample()
-        val current = selectHotspotInterface(snapshot, geelyCompatibility, onDiagnostic)
-        val addresses = current?.let { manualHotspotAddresses(snapshot, it, geelyCompatibility) }.orEmpty()
-        if (closed || isCancelled() || current == null || !expected.sameAddress(current) ||
-            addresses.size != confirmedAddresses.size || confirmedAddresses.any { expectedPath ->
-                addresses.none { it.sameAddress(expectedPath) }
-            }) {
+        val current = selectHotspotInterface(interfaces.sample(), onDiagnostic)
+        if (closed || isCancelled() || current == null || !expected.sameAddress(current)) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_NOT_READY,
                 "Hotspot interface or address changed before publication")
         }
@@ -240,6 +202,7 @@ class ManualHotspotManager(
                     "configured band ${wifiBandLabel(if (expectedBand == ManualHotspotBand.GHZ_2_4) 1 else 2)}",
             )
         }
+        // WPA2 vs WPA3 variants are fine: the live security is what the iPhone is told (see start()).
         // Only an open/secured mismatch means the saved password cannot be right.
         if ((configuration.security == Iap2WirelessSecurity.NONE) != (expectedSecurity == Iap2WirelessSecurity.NONE)) {
             throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION,
@@ -259,17 +222,17 @@ class ManualHotspotManager(
         }
     }
 
-    private fun frequencyFromConnectionInfo(activeSsid: String): Int? {
+    private fun frequencyFromConnectionInfo(): Int? {
         val connectionInfo = try {
             wifiManager.connectionInfo
         } catch (_: SecurityException) {
             null
         } ?: return null
-        if (unquote(connectionInfo.ssid) != activeSsid) return null
+        if (unquote(connectionInfo.ssid) != expectedSsid) return null
         return connectionInfo.frequency.takeIf { it > 0 }
     }
 
-    private fun frequencyFromScanResult(localInterface: LocalHotspotInterface, activeSsid: String): Int? {
+    private fun frequencyFromScanResult(localInterface: LocalHotspotInterface): Int? {
         val localBssid = localInterface.hardwareAddress ?: return null
         val scanResults = try {
             wifiManager.scanResults
@@ -277,7 +240,7 @@ class ManualHotspotManager(
             return null
         }
         return scanResults.firstOrNull { result ->
-            result.SSID == activeSsid &&
+            result.SSID == expectedSsid &&
                 result.BSSID.equals(localBssid, ignoreCase = true) &&
                 result.frequency > 0
         }?.frequency
@@ -320,7 +283,6 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapSoftApSecurity(configuration.securityType),
-                passphrase = configuration.passphrase,
             )
         } catch (_: Throwable) {
             null
@@ -350,7 +312,6 @@ class ManualHotspotManager(
                 channel = channel,
                 frequencyMHz = wifiChannelToFrequencyMhz(channel, band),
                 security = mapWifiConfigurationSecurity(configuration),
-                passphrase = unquote(configuration.preSharedKey),
             )
         } catch (_: Throwable) {
             null
@@ -407,7 +368,6 @@ class ManualHotspotManager(
         val channel: Int,
         val frequencyMHz: Int?,
         val security: Iap2WirelessSecurity,
-        val passphrase: String?,
     )
 
     private class LocalHotspotInterface(

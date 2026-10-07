@@ -26,12 +26,7 @@ internal object AutomaticVehicleProfile {
             .filter { it.size == 14 && it[8] == "READ_OK" }
             .mapNotNull { row -> row[4].toIntOrNull()?.let { listOf(row[0], row[1], row[2], it) } }.toSet()
         val presets = client.presets()
-        val detectedModel = presets.filter { preset ->
-            val codes = Regex("[A-Za-z]+[0-9]+", RegexOption.IGNORE_CASE).findAll(preset.model)
-                .map { it.value }.toList()
-            codes.any { Regex("(?<![A-Za-z0-9])${Regex.escape(it)}(?![A-Za-z0-9])", RegexOption.IGNORE_CASE)
-                .containsMatchIn(Build.MODEL) }
-        }.singleOrNull()
+        val detectedModel = detectedModel(presets)
         progress("正在提取可用属性")
         val recognized = (detectedModel?.let(::listOf) ?: presets).flatMap { it.bindings }
             .filter { binding -> addresses.any { address ->
@@ -72,6 +67,13 @@ internal object AutomaticVehicleProfile {
             if (localSaved) "已应用并保存 ${accepted.size} 项属性。可在“查看车辆数据”查看，在“投屏编辑器”添加显示项目。"
             else "已应用 ${accepted.size} 项属性，车辆数据桥已保存配置。应用内副本保存失败，请重试。")
     }
+
+    fun detectedModel(presets: List<VehiclePropertyProfile>): VehiclePropertyProfile? = presets.filter { preset ->
+            val codes = Regex("[A-Za-z]+[0-9]+", RegexOption.IGNORE_CASE).findAll(preset.model)
+                .map { it.value }.toList()
+            codes.any { Regex("(?<![A-Za-z0-9])${Regex.escape(it)}(?![A-Za-z0-9])", RegexOption.IGNORE_CASE)
+                .containsMatchIn(Build.MODEL) }
+    }.singleOrNull()
 
     private fun file(context: Context) = AtomicFile(File(context.filesDir, "vehicle-profile-application.json"))
     fun load(context: Context, time: Long): ProfileApplication? = runCatching {

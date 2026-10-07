@@ -1,4 +1,9 @@
 <resources>
+    <!-- carlito: exclusive sound output and two-channel routing. -->
+    <string name="vehicle_audio_output_mode">Sound output</string>
+    <string name="vehicle_audio_output_factory">Factory output</string>
+    <string name="vehicle_audio_output_bluetooth">Bluetooth output</string>
+    <string name="vehicle_audio_output_hint">Navigation has its own channel. All other sound uses the media channel. Bluetooth output keeps car Bluetooth music and avoids duplicate music while it is playing. Calls and voice remain available. If Bluetooth playback cannot be detected, CarPlay continues playing.</string>
     <string name="existing_wifi_title">Existing Wi-Fi / Same LAN</string>
     <string name="existing_wifi_description">Use an existing router or portable Wi-Fi. Keep the iPhone and car on the same network with Internet access.</string>
     <string name="existing_wifi_hint">Existing Wi-Fi · Keep both devices on the same Wi-Fi and Bluetooth on. No car hotspot is needed.</string>
@@ -26,8 +31,8 @@
     <string name="marker_up">Up</string>
     <string name="marker_down">Down</string>
     <string name="marker_centre_default">Centre · default</string>
-    <string name="hotspot_mode_auto_desc">Uses the available car hotspot or prepares a compatible wireless connection automatically.</string>
-    <string name="hotspot_hint_auto">DiPlay will choose and prepare the best available wireless connection.</string>
+    <string name="hotspot_mode_auto_desc">Prepares a Wi-Fi Direct connection automatically. For the car hotspot, select Built-in car hotspot.</string>
+    <string name="hotspot_hint_auto">Keep the car Wi-Fi, Bluetooth and iPhone Wi-Fi on.</string>
     <string name="hotspot_mode_manual_desc">Use the car’s own hotspot. Select 5 GHz in car settings if available.</string>
     <string name="hotspot_mode_p2p_desc">Alternative setup. Requires the car’s Wi-Fi switch on; a 2.4 GHz connection may stutter.</string>
     <string name="hotspot_details_off">Hotspot is off · Turn it on in car settings.</string>

@@ -3214,7 +3214,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 hotspotStatus.copy(state = getString(R.string.connecting_bluetooth))
             CarPlayStatus.RunningWireless ->
                 hotspotStatus.copy(state = getString(R.string.running))
-            CarPlayStatus.WirelessActive ->
+            CarPlayStatus.WirelessActive, CarPlayStatus.WirelessActiveFallback ->
                 hotspotStatus.copy(state = getString(R.string.active))
             CarPlayStatus.AttachingNetwork ->
                 hotspotStatus.copy(state = getString(R.string.starting_airplay_service))
@@ -3730,6 +3730,8 @@ class CarPlayHostActivity : ComponentActivity() {
             navigationChannel = AirPlayPersistence.loadNavigationAudioChannel(this),
             navigationOutputDevice = AirPlayPersistence.loadNavigationOutputDevice(this),
             audioOutputRoutes = VehicleAudioRoutes.load(this),
+            unifiedMediaOutput = true,
+            bluetoothOutput = com.shilapi.xcertplay.vehicle.VehicleAudioOutputMode.bluetooth(this),
             context = this,
             navigationStreamType = navigationStreamType,
             onScreenStreamActiveChanged = { type, active ->
@@ -4019,6 +4021,7 @@ class CarPlayHostActivity : ComponentActivity() {
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
+            onNativeBluetoothPlaying = renderer::setNativeBluetoothPlaying,
             vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphoneActive(this)) {
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.batteryStatus(applicationContext)
             } else {
@@ -4031,7 +4034,8 @@ class CarPlayHostActivity : ComponentActivity() {
         updateClusterMapShown()
         next.setHudNavigationListener(GeelyHudProjection::update)
         CarPlayMediaKeys.attach(this, next,
-            manageAudioFocus = geelyFactory == null && !AirPlayPersistence.loadAudioFocusEnabled(this),
+            manageAudioFocus = !com.shilapi.xcertplay.vehicle.VehicleAudioOutputMode.bluetooth(this) &&
+                geelyFactory == null && !AirPlayPersistence.loadAudioFocusEnabled(this),
             onMediaPlaying = renderer::onMediaPlaying)
         if (airPlayConfig.videoInCar) CarPlayVideo.attach(this, next)
         val display = CarPlaySessionDisplay(
@@ -4783,7 +4787,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.WaitingForPairedIphone -> getString(R.string.waiting_for_paired_iphone)
         CarPlayStatus.ConnectingBluetooth -> getString(R.string.connecting_bluetooth)
         CarPlayStatus.RunningWireless -> getString(R.string.wireless_carplay_control_running)
-        CarPlayStatus.WirelessActive -> getString(R.string.wireless_carplay_active)
+        CarPlayStatus.WirelessActive, CarPlayStatus.WirelessActiveFallback -> getString(R.string.wireless_carplay_active)
         CarPlayStatus.DiscoveringIphone -> getString(R.string.discovering_iphone)
         CarPlayStatus.WaitingForIphone -> getString(R.string.waiting_for_iphone_over_usb)
         CarPlayStatus.RequestingIphonePermission -> getString(R.string.requesting_iphone_usb_permission)

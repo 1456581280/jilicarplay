@@ -30,7 +30,7 @@ internal object VehicleReportDelivery {
         val atomic = AtomicFile(target)
         val output = atomic.startWrite()
         try {
-            val name = "DiPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.ROOT).format(Date(time))}.txt"
+            val name = VehicleScanReport.fileName(time)
             val json = JSONObject().put("fileName", name).put("report", report)
             output.write(json.toString().toByteArray(Charsets.UTF_8)); atomic.finishWrite(output)
         } catch (error: Throwable) { atomic.failWrite(output); throw error }

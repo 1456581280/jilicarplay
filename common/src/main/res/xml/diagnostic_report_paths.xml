@@ -2,5 +2,8 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="reports" path="diagnostic-reports/" />
     <external-files-path name="external_reports" path="diagnostic-reports/" />
+    <!-- carlito: scan exports retain independent files and share grants. -->
+    <files-path name="vehicle_reports" path="vehicle-reports/" />
+    <external-files-path name="external_vehicle_reports" path="vehicle-reports/" />
     <external-path name="public_reports" path="Download/DiPlay/" />
 </paths>

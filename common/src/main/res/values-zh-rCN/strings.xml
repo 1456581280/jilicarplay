@@ -1,4 +1,9 @@
 <resources>
+    <!-- carlito: exclusive sound output and two-channel routing. -->
+    <string name="vehicle_audio_output_mode">声音输出方式</string>
+    <string name="vehicle_audio_output_factory">原厂输出</string>
+    <string name="vehicle_audio_output_bluetooth">蓝牙输出</string>
+    <string name="vehicle_audio_output_hint">导航独立输出，其余声音统一走媒体通道。蓝牙输出保留车机蓝牙音乐，播放时自动避免重复音乐；通话和语音正常播放。无法确认蓝牙播放时，继续使用 CarPlay 声音。</string>
     <string name="existing_wifi_title">现有 Wi-Fi / 同一局域网</string>
     <string name="existing_wifi_description">使用已有路由器或随身 Wi-Fi。让 iPhone 和车机保持连接同一网络，并通过它上网。</string>
     <string name="existing_wifi_hint">现有 Wi-Fi · 两台设备保持连接同一 Wi-Fi，蓝牙保持开启，无需开启车机热点。</string>
@@ -26,8 +31,8 @@
     <string name="marker_up">上</string>
     <string name="marker_down">下</string>
     <string name="marker_centre_default">居中 · 默认</string>
-    <string name="hotspot_mode_auto_desc">自动使用可用的车机热点，或准备兼容的无线连接。</string>
-    <string name="hotspot_hint_auto">DiPlay 会自动选择并准备可用的无线连接。</string>
+    <string name="hotspot_mode_auto_desc">自动准备无线连接。使用车机自带热点时，请选择“车机热点”。</string>
+    <string name="hotspot_hint_auto">保持车机 Wi-Fi、蓝牙和手机 Wi-Fi 开启。</string>
     <string name="hotspot_mode_manual_desc">使用车机自带热点。若车机支持，请在车机设置中选择 5 GHz。</string>
     <string name="hotspot_mode_p2p_desc">备选方案。需要打开车机 Wi-Fi 开关；2.4 GHz 连接可能会卡顿。</string>
     <string name="hotspot_details_off">热点已关闭 · 请在车机设置中开启。</string>

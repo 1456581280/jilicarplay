@@ -6,10 +6,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WirelessHostAddressTest {
-    @Test fun manualApPrefersScopedLinkLocalEvenWhenIpv4ComesFirst() {
-        val result = wirelessHostAddress(listOf(ip("192.168.43.1"), ip("fe80::1234")), 7) as Inet6Address
-        assertTrue(result.isLinkLocalAddress)
-        assertEquals(7, result.scopeId)
+    @Test fun manualApPrefersIpv4OnDualStack() {
+        val ipv4 = ip("192.168.43.1")
+        assertEquals(ipv4, wirelessHostAddress(listOf(ipv4, ip("fe80::1234")), 7))
     }
 
     @Test fun replacesScopeFromAnotherInterface() {
@@ -24,12 +23,12 @@ class WirelessHostAddressTest {
         assertNull(wirelessHostAddress(listOf(ip("0.0.0.0"), ip("127.0.0.1"), ip("224.0.0.251")), 7))
     }
 
-    @Test fun stationDiscoveryCoversBothFamiliesButKeepsLegacyPrimaryPolicy() {
+    @Test fun stationDiscoveryCoversBothFamiliesAndPrefersIpv4() {
         val addresses = listOf(ip("fe80::1234"), ip("192.168.128.10"), ip("2001:db8::1"))
         val hosts = existingWifiHostAddresses(addresses, 7)
         assertEquals(ip("192.168.128.10"), hosts.first())
         assertEquals(7, (hosts.last() as Inet6Address).scopeId)
-        assertEquals(hosts.last(), wirelessHostAddress(addresses, 7))
+        assertEquals(hosts.first(), wirelessHostAddress(addresses, 7))
     }
 
     @Test fun stationDiscoveryRejectsUnusableAddressesAndUnscopedIpv6() {

@@ -16,10 +16,10 @@ from urllib.parse import urlsplit
 
 BASE_PATH = "/diplay-profiles"
 MAX_BYTES = 32 * 1024
-MAX_REPORT_BYTES = 1024 * 1024
+MAX_REPORT_BYTES = 10 * 1024 * 1024
 MAX_REPORT_REQUEST_BYTES = 31 * 1024
 REPORT_CHUNK_BYTES = 16 * 1024
-MAX_REPORT_CHUNKS = 64
+MAX_REPORT_CHUNKS = (MAX_REPORT_BYTES + REPORT_CHUNK_BYTES - 1) // REPORT_CHUNK_BYTES
 OPERATIONS = {"play_pause", "next", "previous", "siri"}
 PROFILE_FIELDS = {
     "schemaVersion", "backend", "carModel", "headUnitModel", "manufacturer",
@@ -107,7 +107,7 @@ def validate_report_chunk(payload):
     now = int(time.time() * 1000)
     if type(payload["submittedAt"]) is not int or not now - 30 * 86400 * 1000 < payload["submittedAt"] < now + 86400 * 1000:
         raise ValueError("Invalid submission time")
-    if not re.fullmatch(r"DiPlay-[0-9]{8}-[0-9]{6}-[0-9]{3}\.txt", payload["fileName"]):
+    if not re.fullmatch(r"DiPlay-(?:Vehicle-)?[0-9]{8}-[0-9]{6}-[0-9]{3}\.txt", payload["fileName"]):
         raise ValueError("Invalid report name")
     description = payload["issueDescription"]
     if not isinstance(description, str) or not description.strip() or len(description) > 2000:
@@ -182,10 +182,14 @@ class ReportStore:
     def __init__(self, root):
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # carlito: vehicle scans and connection diagnostics have separate final directories.
+        self.vehicle_root = (self.root.parent / "vehicle-scans").resolve()
+        self.vehicle_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.pending = (self.root / ".pending").resolve()
         self.pending.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.lock = threading.Lock()
-        self.used_bytes = sum(file.stat().st_size for file in self.root.rglob("*.txt") if file.is_file())
+        self.used_bytes = sum(file.stat().st_size for root in (self.root, self.vehicle_root)
+                              for file in root.rglob("*.txt") if file.is_file())
         self.max_bytes = int(os.environ.get("DIPLAY_REPORTS_MAX_STORAGE", str(1024 * 1024 * 1024)))
 
     def save_chunk(self, content):
@@ -219,19 +223,28 @@ class ReportStore:
             if len(report_bytes) > MAX_REPORT_BYTES:
                 raise ValueError("Diagnostic report too large")
             report = report_bytes.decode("utf-8")
-            if not report.startswith("DiPlay ") or "diagnostic report" not in report[:200]:
-                raise ValueError("Invalid diagnostic report")
+            diagnostic = report.startswith("DiPlay ") and "diagnostic report" in report[:200]
+            header_lines = report[:8192].splitlines()
+            vehicle = "schema=geely_property_probe_v2" in header_lines and any(
+                line.startswith("chain_id,kind,area_id,property_name,property_id,property_hex,")
+                for line in header_lines
+            )
+            if not (diagnostic or vehicle):
+                raise ValueError("Invalid report")
             expected = hashlib.sha256(payload["issueDescription"].strip().encode("utf-8") + b"\0" + report_bytes).hexdigest()
             if expected != receipt:
                 raise ValueError("Diagnostic report checksum mismatch")
             stamp = time.strftime("%Y-%m-%d", time.localtime(payload["submittedAt"] / 1000))
-            destination = self.root / stamp / receipt / payload["fileName"]
+            if payload["fileName"].startswith("DiPlay-Vehicle-") and not vehicle:
+                raise ValueError("Vehicle filename requires a vehicle report")
+            root = self.vehicle_root if vehicle else self.root
+            destination = root / stamp / receipt / payload["fileName"]
             body = (
-                "DiPlay user report\n"
+                ("DiPlay vehicle property report\n" if vehicle else "DiPlay user report\n") +
                 f"Submitted at: {payload['submittedAt']}\n\n"
                 "Problem description:\n"
-                f"{payload['issueDescription'].strip()}\n\n"
-                "--- Diagnostic report ---\n"
+                f"{payload['issueDescription'].strip()}\n\n" +
+                ("--- Vehicle property report ---\n" if vehicle else "--- Diagnostic report ---\n") +
                 f"{report}"
             ).encode("utf-8")
             if destination.is_file():
@@ -285,7 +298,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"ok": False, "error": "Not found"})
             return
         remote = self.headers.get("X-Real-IP", self.client_address[0])[:100]
-        request_limit = 60 if path.endswith("/profiles") else 300
+        request_limit = 60 if path.endswith("/profiles") else 2000
         if not self.server.store.admit(f"{remote}|{path}", request_limit):
             self.reply(429, {"ok": False, "error": "Try again later"})
             return

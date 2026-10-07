@@ -92,7 +92,13 @@ class ProbeService : Service() {
             fun progress(stage: String) { main.post { if (!destroyed) state = state.copy(stage = stage) } }
             try {
                 VehicleBridgeClient(applicationContext).use { client ->
-                    val text = client.scanReport()
+                    val rawReport = client.scanReport()
+                    // carlito | Scan metadata is captured on this head unit, separate from runtime diagnostics.
+                    val configuredModel = runCatching { client.activeProfile()?.model }.getOrNull()
+                    val detectedModel = runCatching { AutomaticVehicleProfile.detectedModel(client.presets())?.model }.getOrNull()
+                    val text = VehicleScanReport.format(applicationContext, rawReport,
+                        configuredModel ?: detectedModel,
+                        if (configuredModel != null) "saved vehicle profile" else "head-unit model matched preset")
                     if (Thread.currentThread().isInterrupted) throw InterruptedException("Vehicle scan cancelled")
                     val summary = ProbeSummary.parse(text)
                     ProbeReports.save(applicationContext, text)
@@ -107,7 +113,7 @@ class ProbeService : Service() {
                                 message = "扫描已完成，属性自动应用未完成。已有配置保留，请检查车辆数据桥后重试。")
                         }
                     progress("正在保存报告")
-                    val filename = "车辆扫描-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date(time))}.txt"
+                    val filename = VehicleScanReport.fileName(time)
                     val exported = runCatching { DiagnosticExportStore.saveWithoutPicker(applicationContext, filename, text, shareable = false) }
                         .onFailure { Log.w("DiPlayVehicleProbe", "Public vehicle report export failed", it) }.getOrNull()
                     Log.i("DiPlayVehicleProbe", "Vehicle report export downloads=${exported?.savedToDownloads == true} " +

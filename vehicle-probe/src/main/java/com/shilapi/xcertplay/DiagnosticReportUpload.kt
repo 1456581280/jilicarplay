@@ -24,7 +24,7 @@ object DiagnosticReportUpload {
         require(maxBytes in 1..10 * 1024 * 1024)
         val description = issueDescription.trim()
         require(description.isNotEmpty() && description.length <= MAX_DESCRIPTION_LENGTH)
-        require(fileName.matches(Regex("DiPlay-[0-9]{8}-[0-9]{6}-[0-9]{3}\\.txt")))
+        require(fileName.matches(Regex("DiPlay-(?:Vehicle-)?[0-9]{8}-[0-9]{6}-[0-9]{3}\\.txt")))
         val reportBytes = report.toByteArray(Charsets.UTF_8)
         if (reportBytes.size > maxBytes) throw DiagnosticReportTooLargeException()
         require(reportBytes.isNotEmpty())

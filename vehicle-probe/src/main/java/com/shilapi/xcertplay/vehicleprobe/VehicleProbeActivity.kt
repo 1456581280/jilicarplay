@@ -304,7 +304,7 @@ class VehicleProbeActivity : Activity() {
         if (exporting) return
         exporting = true
         export.isEnabled = false
-        val filename = "车辆扫描-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date())}.txt"
+        val filename = VehicleScanReport.fileName(System.currentTimeMillis())
         exportWithoutPicker(filename)
     }
 

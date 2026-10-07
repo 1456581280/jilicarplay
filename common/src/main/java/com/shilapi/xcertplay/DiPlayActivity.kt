@@ -722,10 +722,16 @@ class DiPlayActivity : ComponentActivity() {
                     AirPlayPersistence.saveAdvancedAudioChannelMapping(this, it)
                 }
             }
+            choice(card, getString(R.string.vehicle_audio_output_mode), listOf(
+                getString(R.string.vehicle_audio_output_factory), getString(R.string.vehicle_audio_output_bluetooth)),
+                if (com.shilapi.xcertplay.vehicle.VehicleAudioOutputMode.bluetooth(this)) 1 else 0) {
+                com.shilapi.xcertplay.vehicle.VehicleAudioOutputMode.setBluetooth(this, it == 1)
+            }
+            card.addView(label(getString(R.string.vehicle_audio_output_hint), 14, MUTED))
             mediaChannelControl(card)
             navigationChannelControl(card)
             navigationOutputControl(card)
-            VehicleAudioRole.entries.filter { it != VehicleAudioRole.NAVIGATION }.forEach { navigationOutputControl(card, it) }
+            navigationOutputControl(card, VehicleAudioRole.MEDIA)
         }
         section(content, getString(R.string.location), R.drawable.ic_dp_navigation) { card ->
             toggle(card, getString(R.string.report_location_to_iphone),
