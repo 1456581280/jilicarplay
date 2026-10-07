@@ -1,3 +1,9 @@
+# DiPlay 0.2.14 — 2026-10-08
+
+- 恢复无线连接流程，默认使用系统或车机自带热点，修正旧“自动”设置与实际连接方式不一致。
+- 保留手动选择 Wi-Fi Direct、现有 Wi-Fi 和 USB 连接。
+- 保留导航与媒体音频设置、方控、车辆扫描、全屏和投屏编辑器。
+
 # DiPlay 0.2.13.2 — 2026-10-07
 
 - Add one-click read-only vehicle scan, verified profile application, direct Downloads export, and durable cloud report delivery up to 10 MiB.
