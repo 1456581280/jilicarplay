@@ -52,8 +52,6 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      APP_RELEASE_SUFFIX: "-stable"
     steps:
       - uses: actions/checkout@v4
       - name: Check release signing and CarPlay authentication
@@ -151,9 +149,8 @@ jobs:
           script: |
             const fs = require('fs');
             const version = process.env.APP_VERSION;
-            const suffix = process.env.APP_RELEASE_SUFFIX || '';
-            const tag = `v${version}${suffix}`;
-            const assetName = `DiPlay-${version}${suffix}.apk`;
+            const tag = `v${version}`;
+            const assetName = `DiPlay-${version}.apk`;
             const releaseNotes = fs.readFileSync(`docs/UPDATE-NOTES-${version}.md`, 'utf8').trim();
             if (!releaseNotes) throw new Error(`Release notes for ${version} are empty`);
             const apkDir = 'mobile/build/outputs/apk/release';

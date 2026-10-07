@@ -1,10 +1,10 @@
-# 0.2.13.1 stable connection baseline
+# 0.2.13.2 connection baseline
 
 Source baseline: `8f53b27b3168aedb661e9f9bb7122ea344b75ada`.
 Feature source: `29b3cb3248a70c6eece3688f1805873f8e2fa076`.
-App version: `0.2.13.1`, upgrade code `36`.
+App version: `0.2.13.2`, upgrade code `36`.
 
-Published separately as `v0.2.13.1-stable` to keep the previous release reproducible.
+Published as `v0.2.13.2` to keep the previous release reproducible.
 Automatic upstream synchronization fetches changes but does not merge them into this
 stable baseline; subsequent updates must selectively migrate features and review connection paths.
 

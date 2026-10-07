@@ -1,3 +1,9 @@
+# DiPlay 0.2.13.2 — 2026-10-07
+
+- Restore the previously working network, hotspot, USB and Bluetooth discovery paths while keeping 0.2.13.1 display, vehicle and audio features.
+- Apply the saved top status-bar switch immediately on the home/settings screen and restore it on resume or window focus.
+- Keep signing and Android 9 compatibility; in-car behavior remains to be confirmed.
+
 # DiPlay 0.2.13.1 — 2026-10-07
 
 - Coordinate Bluetooth music with CarPlay ownership and restore app-disconnected music connections when possible.
