@@ -180,7 +180,18 @@ class CarPlayController(
 
     private val appContext = context.applicationContext
     private val geelyFactory = com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay.load(appContext)
-    private var factoryBluetoothGuard: com.shilapi.xcertplay.vehicle.GeelyBluetoothAudioGuard? = null
+    // carlito | Generic audio ownership follows granted focus; explicit phone handoff remains supported.
+    private var bluetoothAudioOwnership = false
+    private var bluetoothAudioCommand = false
+    fun setBluetoothAudioOwnership(owned: Boolean) {
+        mainHandler.post {
+            if (!closed) {
+                bluetoothAudioOwnership = owned
+                factoryBluetoothGuard?.setSuppressed(geelyFactory != null || owned || bluetoothAudioCommand)
+            }
+        }
+    }
+    private var factoryBluetoothGuard: com.shilapi.xcertplay.vehicle.BluetoothAudioHandoff? = null
     private var factoryBluetoothSession: AirPlaySession? = null
     @Volatile private var wirelessPeerBluetoothAddress: String? = null
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
@@ -226,6 +237,8 @@ class CarPlayController(
     private var clusterUiShown = true
     // Immutable snapshots keep accessibility key filtering away from the network-writing UI lock.
     @Volatile private var clusterUiVisibility: Pair<Pair<AirPlaySession, Int>, Boolean>? = null
+    // carlito | A vehicle projection owner supersedes the optional BYD dashboard pause policy.
+    @Volatile private var projectionUiOwner: Any? = null
     @Volatile private var dashboardMapOutputVisible = false
     private val dashboardMapEpoch = AtomicInteger()
     private val playbackStatus = com.shilapi.xcertplay.media.CarPlayPlaybackStatus()
@@ -304,9 +317,7 @@ class CarPlayController(
                 }
             }
             activeSession = session
-            if (geelyFactory != null) {
-                wirelessPeerBluetoothAddress?.let { configureBluetoothAudioHandoff(session, it) }
-            }
+            wirelessPeerBluetoothAddress?.let { configureBluetoothAudioHandoff(session, it) }
             if (replacement) restoreDashboardContent(session)
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -321,6 +332,7 @@ class CarPlayController(
                     factoryBluetoothGuard?.close()
                     factoryBluetoothGuard = null
                     factoryBluetoothSession = null
+                    bluetoothAudioCommand = false
                 }
             }
             if (activeSession === session) {
@@ -387,7 +399,7 @@ class CarPlayController(
                     connectedAddress == null || requestedAddress.equals(connectedAddress, true) -> requestedAddress
                     else -> null
                 }
-                address?.let { configureBluetoothAudioHandoff(session, it) }
+                address?.let { configureBluetoothAudioHandoff(session, it, force = true) }
             }
             debugLog(
                 "AirPlay command type=$type params=${params.keys.sorted().joinToString(",")}",
@@ -495,6 +507,23 @@ class CarPlayController(
         }
     }
 
+    /** Moves CarPlay on the main screen to its declared view area [index], for example another dock edge. */
+    fun showViewArea(index: Int): Boolean {
+        if (closed) return false
+        val session = activeSession ?: return false
+        val token = session.mainScreenSessionToken() ?: return false
+        return try {
+            touchExecutor.execute {
+                if (!closed && activeSession === session && session.mainScreenSessionToken() === token) {
+                    debugLog("View area $index sent=${session.showViewArea(index)}")
+                }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Sends a CarPlay knob/touchpad movement or button state through the AirPlay HID channel. */
     fun sendKnob(state: AirPlayKnobState, momentary: Boolean = true): Boolean {
         if (closed) return false
@@ -525,6 +554,13 @@ class CarPlayController(
     /** Immutable stream geometry retained when a new host adopts this background controller. */
     fun configuredClusterSize(): Pair<Int, Int>? = airPlayConfig.cluster?.let { it.widthPixels to it.heightPixels }
 
+    /** carlito | Phone and active cluster stream identity, including when its map is hidden. */
+    fun clusterProjectionSessionToken(): Any? {
+        if (closed) return null
+        val session = activeSession ?: return null
+        return session.clusterStream.takeIf { it > 0 }?.let { session to it }
+    }
+
     /** A visible physical map and its session/stream generation; null for a paused/virtual/turn-card route. */
     fun dashboardMapRoute(): Any? {
         val session = activeSession ?: return null
@@ -542,12 +578,13 @@ class CarPlayController(
     fun dashboardMapStreaming(): Boolean = dashboardMapRoute() != null
 
     /** One zoom step for the dashboard map, as the car's own zoom controls send it. */
-    fun zoomDashboardMap(zoomIn: Boolean): Boolean {
+    @JvmOverloads
+    fun zoomDashboardMap(zoomIn: Boolean, permitted: () -> Boolean = { true }): Boolean {
         val route = dashboardMapRoute() ?: return false
         val session = activeSession ?: return false
         return try {
             touchExecutor.execute {
-                if (activeSession === session && dashboardMapRoute() == route) session.changeMapZoomLevel(zoomIn)
+                if (activeSession === session && dashboardMapRoute() == route && permitted()) session.changeMapZoomLevel(zoomIn)
             }
             true
         } catch (_: Exception) {
@@ -561,6 +598,23 @@ class CarPlayController(
         val session = activeSession ?: return false
         return try {
             touchExecutor.execute { session.invokeSiri() }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Answers the ringing call on the iPhone (telephony Hook Switch), as the wheel's call button does. */
+    fun answerCall(): Boolean = sendTelephony(TELEPHONY_HOOK_SWITCH)
+
+    /** Ends the current call or declines the ringing one (telephony Drop). */
+    fun endCall(): Boolean = sendTelephony(TELEPHONY_DROP)
+
+    private fun sendTelephony(index: Int): Boolean {
+        if (closed) return false
+        val session = activeSession ?: return false
+        return try {
+            touchExecutor.execute { session.sendTelephony(index) }
             true
         } catch (_: Exception) {
             false
@@ -722,6 +776,7 @@ class CarPlayController(
 
     // Each new cluster stream starts with the map drawn (its initialURL); send only real changes.
     private fun applyClusterUi(shown: Boolean) = synchronized(clusterUiLock) {
+        if (projectionUiOwner != null) return@synchronized
         val session = activeSession ?: return@synchronized
         val stream = session.clusterStream.takeIf { it > 0 } ?: return@synchronized
         if (clusterUiStream != session to stream) {
@@ -736,6 +791,36 @@ class CarPlayController(
             dashboardMapEpoch.incrementAndGet()
             debugLog("Cluster map: ${if (shown) "showUI, the cluster shows the map" else "stopUI, the cluster hides the map"}")
         }
+    }
+
+    /** carlito | Sends map visibility off the UI thread and rejects a replaced phone/owner. */
+    fun setProjectionUiShown(owner: Any, shown: Boolean, onComplete: (Boolean) -> Unit) {
+        synchronized(clusterUiLock) { projectionUiOwner = owner }
+        val session = activeSession
+        if (closed || session == null || session.clusterStream <= 0) { onComplete(false); return }
+        val stream = session.clusterStream
+        try {
+            touchExecutor.execute {
+                val sent = synchronized(clusterUiLock) {
+                    if (closed || projectionUiOwner !== owner || activeSession !== session || session.clusterStream != stream) false
+                    else session.setClusterUiShown(shown).also { accepted -> if (accepted) {
+                        clusterUiStream = session to stream; clusterUiShown = shown
+                        clusterUiVisibility = (session to stream) to shown
+                        dashboardMapEpoch.incrementAndGet()
+                    } }
+                }
+                onComplete(sent)
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) { onComplete(false) }
+    }
+
+    fun releaseProjectionUi(owner: Any) {
+        // carlito | Finish a previously queued stopUI before dropping the owner's permission.
+        val release = { synchronized(clusterUiLock) {
+            if (projectionUiOwner === owner) projectionUiOwner = null
+        } }
+        try { touchExecutor.execute(release) }
+        catch (_: java.util.concurrent.RejectedExecutionException) { release() }
     }
 
     /** Waits for USB, iAP2, MFi and VPN teardown; intended for a non-main lifecycle thread. */
@@ -2362,15 +2447,25 @@ class CarPlayController(
             }
         }
 
-    private fun configureBluetoothAudioHandoff(session: AirPlaySession, address: String) {
+    private fun configureBluetoothAudioHandoff(session: AirPlaySession, address: String, force: Boolean = false) {
         if (!BluetoothAdapter.checkBluetoothAddress(address.uppercase(Locale.US))) return
         mainHandler.post {
-            if (closed || activeSession !== session || factoryBluetoothSession === session) return@post
+            if (closed || activeSession !== session) return@post
+            if (factoryBluetoothSession === session) {
+                if (force) bluetoothAudioCommand = true
+                factoryBluetoothGuard?.setSuppressed(geelyFactory != null || bluetoothAudioOwnership || bluetoothAudioCommand)
+                return@post
+            }
             val bonded = runCatching { bluetoothAdapter?.bondedDevices?.any { it.address.equals(address, true) } == true }.getOrDefault(false)
             if (!bonded) return@post
-            factoryBluetoothGuard?.close()
+            val previous = factoryBluetoothGuard
+            bluetoothAudioCommand = force
             factoryBluetoothSession = session
-            factoryBluetoothGuard = com.shilapi.xcertplay.vehicle.GeelyBluetoothAudioGuard(appContext, address, ::debugLog).also { it.start() }
+            factoryBluetoothGuard = com.shilapi.xcertplay.vehicle.BluetoothAudioHandoff(appContext, address, ::debugLog).also {
+                it.setSuppressed(geelyFactory != null || bluetoothAudioOwnership || force)
+                it.start()
+            }
+            previous?.close()
         }
     }
 
@@ -2678,6 +2773,9 @@ class CarPlayController(
 
     companion object {
         const val CONNECTION_DIAGNOSTIC_PREFIX = "CONNECTION_DIAGNOSTIC"
+        // Indices in the telephony HID report (AirPlayHid.telephonyDescriptor).
+        private const val TELEPHONY_HOOK_SWITCH = 1
+        private const val TELEPHONY_DROP = 3
         private val diagnosticAttempts = AtomicInteger()
         private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
         private const val HOTSPOT_START_TIMEOUT_MILLIS = 60_000L

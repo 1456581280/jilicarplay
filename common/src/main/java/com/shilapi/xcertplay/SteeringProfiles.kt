@@ -27,6 +27,8 @@ internal data class SteeringBinding(
     val eventExtra: String = "",
     val logContains: List<String> = emptyList(),
 ) {
+    // carlito | Existing OneOS profiles also work through the bridge's selected ECARX backend.
+    val isVendorInput: Boolean get() = source in listOf("oneos", "ecarx", "vehicle_bridge")
     fun json(): JSONObject = JSONObject()
         .put("operation", operation).put("keyCode", keyCode).put("event", event)
         .put("source", source).put("logTag", logTag)
@@ -48,7 +50,7 @@ internal data class SteeringBinding(
             }.orEmpty(),
         ).also {
             require(it.operation in operations && it.event in 0..4)
-            require(it.source in listOf("broadcast", "logcat", "oneos"))
+            require(it.source in listOf("broadcast", "logcat", "oneos", "ecarx", "vehicle_bridge"))
             require(it.keyCode in 1..1_000_000 || (it.keyCode == 0 && it.source == "logcat" && it.logContains.isNotEmpty()))
             require(it.source != "logcat" || it.logTag.isNotBlank())
             require(it.logTag.length <= 100 && it.logTag.none(Char::isISOControl))

@@ -1,0 +1,6 @@
+<!-- carlito | GD vehicle probe integration. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#156A51" android:pathData="M0,0h48v48h-48z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M12,17l3,-7h18l3,7v17h-4v-4h-16v4h-4zM17,13l-2,5h18l-2,-5zM16,23a2,2 0,1 0,0.01,0zM32,23a2,2 0,1 0,0.01,0z" />
+</vector>

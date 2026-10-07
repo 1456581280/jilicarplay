@@ -35,11 +35,12 @@ class NtpClock : Closeable {
     private var pendingT1: BigInteger? = null
     private var synced = false
 
-    fun listen(): Int {
+    fun listen(bindAddress: InetAddress? = null): Int {
         check(!running.getAndSet(true)) { "NtpClock is already running" }
         val bound = DatagramSocket(null)
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+        // carlito: Timing requests use the same local network as the authenticated session.
+        bound.bind(InetSocketAddress(bindAddress ?: InetAddress.getByName("::"), 0))
         synchronized(socketLock) { socket = bound }
         receiver = Thread(::runReceiver, "airplay-ntp-rx").apply { isDaemon = true; start() }
         return bound.localPort

@@ -33,7 +33,7 @@ internal class AudioChannelPreview(context: Context? = null, private val onUnava
     private var pending: Future<*>? = null
     @Volatile private var closed = false
 
-    fun play(channel: Int, navigation: Boolean, output: AudioOutputDevice? = null) {
+    fun play(channel: Int, navigation: Boolean, output: AudioOutputDevice? = null, role: VehicleAudioRole? = null) {
         if (closed) return
         require(channel in AirPlayPersistence.AUDIO_CHANNELS)
         val request = generation.incrementAndGet()
@@ -50,11 +50,11 @@ internal class AudioChannelPreview(context: Context? = null, private val onUnava
                 )
                 check(minimum > 0) { "No PCM output buffer is available" }
                 val bufferBytes = maxOf(minimum, SAMPLE_RATE / 10 * 2)
-                val standardUsage = if (navigation) AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
+                val standardUsage = role?.usage ?: if (navigation) AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE
                     else AudioAttributes.USAGE_MEDIA
-                val usage = factoryAudio?.audioUsage(if (navigation) "GUIDANCE" else "MEDIA", standardUsage)
+                val usage = factoryAudio?.audioUsage(role?.factoryKind ?: if (navigation) "GUIDANCE" else "MEDIA", standardUsage)
                     ?: standardUsage
-                val contentType = if (navigation) AudioAttributes.CONTENT_TYPE_SPEECH else AudioAttributes.CONTENT_TYPE_MUSIC
+                val contentType = if (role != null && role != VehicleAudioRole.MEDIA || navigation) AudioAttributes.CONTENT_TYPE_SPEECH else AudioAttributes.CONTENT_TYPE_MUSIC
                 var attributes = AudioAttributes.Builder().setUsage(usage).setContentType(contentType).build()
                 if (attributes.usage != usage) {
                     attributes = AudioAttributes.Builder().setUsage(standardUsage).setContentType(contentType).build()

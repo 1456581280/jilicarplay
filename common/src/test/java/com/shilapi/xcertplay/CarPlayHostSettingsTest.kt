@@ -111,6 +111,36 @@ class CarPlayHostSettingsTest {
         assertTrue(field("menuOpen") as Boolean)
     }
 
+    @Test fun fullSettingsShortcutDiscardsPreviewWithoutRestartingTheSession() {
+        val controller = attachController()
+        invoke("openSettingsMenu")
+        val original = AirPlayPersistence.loadDisplayScalePercent(activity)
+        resolutionSlider().progress = 0
+        fullSettingsButton().performClick()
+        assertFalse(field("menuOpen") as Boolean)
+        assertNull(field("settingsBaseline"))
+        assertEquals(original, field("displayScalePercent"))
+        assertEquals(original, AirPlayPersistence.loadDisplayScalePercent(activity))
+        assertSame(controller, field("controller"))
+        assertEquals(0, field("restartGeneration"))
+        val intent = shadowOf(activity).nextStartedActivity
+        assertEquals(DiPlayActivity::class.java.name, intent.component!!.className)
+        assertEquals("settings", intent.getStringExtra("page"))
+    }
+
+    @Test fun returningFromFullSettingsReloadsSavedConnectionPreferences() {
+        attachController()
+        invoke("openSettingsMenu")
+        fullSettingsButton().performClick()
+        AirPlayPersistence.saveMfiTarget(activity, MfiTarget.LOCAL)
+        AirPlayPersistence.saveWirelessHotspotMode(activity, WirelessHotspotMode.MANUAL)
+        AirPlayPersistence.saveManualHotspotSsid(activity, "Updated in full settings")
+        invoke("onResume")
+        assertEquals(MfiTarget.LOCAL, field("mfiTarget"))
+        assertEquals(WirelessHotspotMode.MANUAL, field("wirelessHotspotMode"))
+        assertEquals("Updated in full settings", field("manualHotspotSsid"))
+    }
+
     @Test fun openingAndCancellingKeepsTheCurrentControllerAndRestoresControls() {
         val controller = attachController()
         invoke("openSettingsMenu")
@@ -303,6 +333,64 @@ class CarPlayHostSettingsTest {
         assertNull(shadowOf(activity).nextStartedActivity)
     }
 
+    @Test fun iphoneAttachmentSwitchesToWiredTransportWithoutFinishing() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(null)
+        attachController()
+        AirPlayPersistence.saveWirelessEnabled(activity, true)
+        invoke("loadPersistedSettings")
+        val device = mock(UsbDevice::class.java)
+        `when`(device.vendorId).thenReturn(0x05ac)
+        val intent = Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED).putExtra(UsbManager.EXTRA_DEVICE, device)
+        activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java)
+            .apply { isAccessible = true }.invoke(activity, intent)
+        assertFalse(AirPlayPersistence.loadWirelessEnabled(activity))
+        assertFalse(field("wirelessEnabled") as Boolean)
+        assertTrue(field("vpnReady") as Boolean)
+        assertFalse((field("shuttingDown") as AtomicBoolean).get())
+        assertFalse(activity.isFinishing)
+        assertNull(shadowOf(activity).nextStartedActivity)
+    }
+
+    @Test fun switchingToUsbRequestsVpnConsentAndDoesNotRepeatPendingConsent() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(Intent("test.VPN_CONSENT"))
+        attachController()
+        AirPlayPersistence.saveWirelessEnabled(activity, true)
+        invoke("loadPersistedSettings")
+        setField("vpnReady", true) // Previously granted permission may have been revoked.
+        val device = mock(UsbDevice::class.java)
+        `when`(device.vendorId).thenReturn(0x05ac)
+        val intent = Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED).putExtra(UsbManager.EXTRA_DEVICE, device)
+        val method = activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply { isAccessible = true }
+        method.invoke(activity, intent)
+        assertTrue(field("awaitingVpnConsent") as Boolean)
+        assertFalse(field("vpnReady") as Boolean)
+        assertNull(field("controller"))
+        assertEquals("test.VPN_CONSENT", shadowOf(activity).nextStartedActivityForResult.intent.action)
+        method.invoke(activity, intent)
+        assertNull(shadowOf(activity).nextStartedActivityForResult)
+        assertFalse(activity.isFinishing)
+    }
+
+    @Test fun usbAttachmentClosesSettingsAndRestartsInPlace() {
+        org.robolectric.shadows.ShadowVpnService.setPrepareResult(null)
+        attachController()
+        AirPlayPersistence.saveWirelessEnabled(activity, true)
+        invoke("loadPersistedSettings")
+        invoke("openSettingsMenu")
+        assertTrue(field("menuOpen") as Boolean)
+        val device = mock(UsbDevice::class.java)
+        `when`(device.vendorId).thenReturn(0x05ac)
+        val intent = Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED).putExtra(UsbManager.EXTRA_DEVICE, device)
+        activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply { isAccessible = true }
+            .invoke(activity, intent)
+        assertFalse(field("menuOpen") as Boolean)
+        assertFalse(field("wirelessEnabled") as Boolean)
+        assertTrue(field("vpnReady") as Boolean)
+        assertNull(field("controller"))
+        assertEquals(1, field("restartGeneration"))
+        assertFalse(activity.isFinishing)
+    }
+
     @Test fun onlyIphoneAttachmentSelectsWiredTransport() {
         val method = activity.javaClass.getDeclaredMethod("isIphoneUsbAttachment", Intent::class.java)
             .apply { isAccessible = true }
@@ -400,6 +488,8 @@ class CarPlayHostSettingsTest {
         .first { it.max == CarPlayDisplayScale.MAX_PERCENT - CarPlayDisplayScale.MIN_PERCENT }
     private fun gestureButton() = views(menu()).filterIsInstance<Button>()
         .first { it.text == activity.getString(R.string.settings_gesture_fingers, field("gestureFingerCount")) }
+    private fun fullSettingsButton() = views(menu()).filterIsInstance<Button>()
+        .first { it.text == activity.getString(R.string.app_name) + " " + activity.getString(R.string.settings) }
     private fun views(view: View): Sequence<View> = sequence {
         yield(view)
         if (view is ViewGroup) for (index in 0 until view.childCount) yieldAll(views(view.getChildAt(index)))

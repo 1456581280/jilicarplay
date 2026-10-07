@@ -18,9 +18,12 @@ import android.view.KeyEvent
 import androidx.core.graphics.drawable.toBitmap
 import com.shilapi.xcertplay.airplay.CarPlayMediaButton
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.hud.BydOutputSettings
 import com.shilapi.xcertplay.media.CarPlayNowPlaying
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay
+import com.shilapi.xcertplay.vehicleprobe.VehicleSteeringClient
+import com.shilapi.xcertplay.vehicleprobe.VehicleProjectionClient
 import java.util.concurrent.Executors
 import java.util.concurrent.Executor
 
@@ -48,20 +51,36 @@ internal object CarPlayMediaKeys {
         discard = Bitmap::recycle,
     )
     private var artworkOwner: Any? = null
-    private var controller: CarPlayController? = null
+    @Volatile private var controller: CarPlayController? = null
     private var session: MediaSession? = null
     private var focusRequest: AudioFocusRequest? = null
     private var focusHeld = false
     private var manageAudioFocus = true
     private var appContext: Context? = null
-    private var geelyInput: GeelySteeringWheelInputChannel? = null
+    // carlito | The independent bridge owns all OEM input implementation and interception.
+    @Volatile private var bridgeInput: VehicleSteeringClient? = null
+    // carlito | One shared steering lease; volume keys are added only while map zoom is active.
+    private var bridgeBaseKeys = intArrayOf()
+    private val bridgeZoom = WheelZoomKeys()
+    private var bridgeZoomKeys = emptyMap<WheelZoomSettings.Role, Int>()
+    @Volatile private var instrumentStatus: VehicleProjectionClient? = null
+    @Volatile private var zoomEpoch = 0L
+    @Volatile private var zoomActive = false
+    @Volatile private var zoomDeadline = 0L
+    private val zoomPoll = object : Runnable {
+        override fun run() = synchronized(this@CarPlayMediaKeys) {
+            refreshZoomEligibility()
+            if (controller != null && bridgeZoomKeys.isNotEmpty()) mainHandler.postDelayed(this, 100L)
+        }
+    }
+    @Volatile private var steeringGeneration = 0
     private var keyLogMonitor: SteeringKeyLogMonitor? = null
-    private var lastGeelyInputDiagnostics = "oneOs INACTIVE"
+    private var lastGeelyInputDiagnostics = "vehicleBridge INACTIVE"
     private var lastKeyLogDiagnostics = "logMonitor INACTIVE"
     @Volatile private var monitorGeneration = 0
     private var steeringProfile: SteeringProfile? = null
     private data class Learning(val owner: Any, val onKey: (SteeringObservedKey?) -> Unit)
-    private var learning: Learning? = null
+    @Volatile private var learning: Learning? = null
     private var learningTimeout: Runnable? = null
     private var suppressedUntil = 0L
     private var lastSentButton = -1
@@ -171,36 +190,56 @@ internal object CarPlayMediaKeys {
     }
 
     private fun syncGeelyInputLocked() {
-        val profileUsesOneOs = steeringProfile?.bindings?.any { it.source == "oneos" } == true
+        bridgeZoomKeys = appContext?.takeIf { WheelZoomSettings.enabled(it) }?.let(WheelZoomSettings::bridgeKeys).orEmpty()
+        if (controller != null && bridgeZoomKeys.isNotEmpty() && instrumentStatus == null)
+            instrumentStatus = VehicleProjectionClient(appContext!!)
+        if (controller == null || bridgeZoomKeys.isEmpty()) { instrumentStatus?.close(); instrumentStatus = null; endBridgeZoom() }
+        mainHandler.removeCallbacks(zoomPoll)
+        if (controller != null && bridgeZoomKeys.isNotEmpty()) mainHandler.post(zoomPoll)
+        val profileUsesVehicleBridge = steeringProfile?.bindings?.any { it.isVendorInput } == true
         val useGeelyInput = learning != null || controller != null &&
-            (profileUsesOneOs || steeringProfile == null &&
+            (bridgeZoomKeys.isNotEmpty() || profileUsesVehicleBridge || steeringProfile == null &&
                 appContext?.let(AirPlayPersistence::loadGeelySteeringEnabled) == true)
         if (!useGeelyInput) {
-            geelyInput?.let { lastGeelyInputDiagnostics = it.diagnostics(); it.close() }
-            geelyInput = null
-        } else if (geelyInput == null) {
-            geelyInput = GeelySteeringWheelInputChannel(appContext!!, ::onGeelySteeringKey).also {
-                it.setEnabled(true)
+            steeringGeneration++
+            bridgeInput?.let { lastGeelyInputDiagnostics = it.diagnostics(); it.close() }
+            bridgeInput = null
+        } else {
+            if (bridgeInput == null) {
+                val generation = ++steeringGeneration
+                bridgeInput = VehicleSteeringClient(appContext!!) { event ->
+                    onGeelySteeringKey(GeelySteeringKeyEvent(event.getInt("keyCode"), event.getInt("rawKeyCode"),
+                        event.getInt("action"), event.getLong("eventTimeMs")), generation, source = "vehicle_bridge")
+                }
             }
+            bridgeBaseKeys = steeringProfile?.bindings?.filter { it.isVendorInput }
+                ?.map { GeelySteeringKeyCodes.canonicalize(it.keyCode) ?: it.keyCode }?.toIntArray()
+                ?: intArrayOf(200085, 200087, 200088, 200231, 210005, 210006)
+            // Learning is a passive observation; playback only uses acknowledged interception.
+            updateBridgeKeys()
         }
         keyLogMonitor?.let { lastKeyLogDiagnostics = it.diagnostics(); it.close() }; keyLogMonitor = null
         val generation = ++monitorGeneration
-        val inputBindings = steeringProfile?.bindings?.filterNot { it.source == "oneos" } ?: if (!useGeelyInput && appContext?.let(GeelyFactoryCarPlay::load) != null) {
+        val inputBindings = steeringProfile?.bindings?.filterNot { it.isVendorInput } ?: if (!useGeelyInput && appContext?.let(GeelyFactoryCarPlay::load) != null) {
             // HardKeyModel in the factory APK logs this press even without a connected iPhone.
             listOf(SteeringBinding("siri", 200231, 0, "logcat", "HardKeyModel"))
         } else emptyList()
         val needsSystemInput = learning != null || (controller != null && inputBindings.isNotEmpty())
-        if (needsSystemInput && appContext != null) {
+        if (needsSystemInput && appContext != null &&
+            (learning == null || !VehicleSteeringClient.installed(appContext!!))) {
             keyLogMonitor = SteeringKeyLogMonitor(appContext!!, inputBindings, learning != null) { key ->
                 mainHandler.post { if (generation == monitorGeneration) onObservedKey(key) }
             }.also { it.start() }
         }
     }
 
-    private fun onGeelySteeringKey(event: GeelySteeringKeyEvent) {
+    private fun onGeelySteeringKey(event: GeelySteeringKeyEvent, generation: Int = steeringGeneration,
+        source: String = "oneos") {
         mainHandler.post {
-            if (learning != null || steeringProfile?.bindings?.any { it.source == "oneos" } == true) {
-                onObservedKey(SteeringObservedKey(event.keyCode, event.action, "oneos"))
+            if (generation != steeringGeneration) return@post
+            if (learning == null && onBridgeZoomKey(event)) return@post
+            if (learning != null || steeringProfile?.bindings?.any { it.isVendorInput } == true) {
+                onObservedKey(SteeringObservedKey(event.keyCode, event.action, source))
                 return@post
             }
             if (steeringProfile != null) return@post
@@ -213,8 +252,91 @@ internal object CarPlayMediaKeys {
             }
             if (steeringProfile?.bindings?.any { it.operation == operation } == true) return@post
             val trigger = if (operation == "siri") event.action in 1..4 else event.action == 0 || event.action == 2
-            if (trigger) sendSteeringOperation(operation, "oneos")
+            if (trigger) sendSteeringOperation(operation, source)
         }
+    }
+
+    fun refreshWheelZoom(context: Context) = synchronized(this) {
+        appContext = context.applicationContext
+        endBridgeZoom()
+        syncGeelyInputLocked()
+    }
+
+    fun learnBridgeZoom(context: Context, owner: Any, role: WheelZoomSettings.Role, done: (WheelKey?) -> Unit) {
+        startSteeringLearning(context, owner) { observed ->
+            if (observed == null) done(null)
+            else if (observed.source in listOf("oneos", "ecarx", "vehicle_bridge")) {
+                stopSteeringLearning(owner)
+                val key = WheelKey(GeelySteeringKeyCodes.canonicalize(observed.keyCode) ?: observed.keyCode, 0, "vehicle_bridge")
+                WheelZoomSettings.assign(context, role, key)
+                done(key)
+            }
+        }
+    }
+
+    private fun menuAllowsBridgeZoom(): Boolean {
+        val status = instrumentStatus?.status() ?: return false
+        // Unknown/stale OEM menu state cannot steal a volume knob from the original instrument UI.
+        return status.getInt("schema") == 1 && (!status.getBoolean("supported") || status.getBoolean("menuAllowsZoom"))
+    }
+    private fun bridgeZoomRoute(): Any? {
+        val mode = appContext?.getSystemService(AudioManager::class.java)?.mode
+        return if (learning == null && mode !in listOf(AudioManager.MODE_IN_CALL, AudioManager.MODE_IN_COMMUNICATION) &&
+            menuAllowsBridgeZoom()) controller?.dashboardMapRoute() else null
+    }
+
+    private fun refreshZoomEligibility() {
+        val stage = bridgeInput?.status()?.getString("stage")
+        val volumes = bridgeZoomKeys.filterKeys { it != WheelZoomSettings.Role.MODE }.values
+        if (bridgeZoom.updateEligibility(bridgeZoomRoute()) || zoomActive &&
+            (SystemClock.elapsedRealtime() >= zoomDeadline || stage !in listOf("ACTIVE", "PARTIAL_INTERCEPTION", "CONFIGURING") ||
+                stage == "PARTIAL_INTERCEPTION" && volumes.any { bridgeInput?.ownsCanonicalKey(it) != true }))
+            endBridgeZoom()
+        if (bridgeZoomRoute() == null) endBridgeZoom()
+        updateBridgeKeys()
+    }
+    private fun updateBridgeKeys() {
+        val route = bridgeZoomRoute()
+        val mode = bridgeZoomKeys[WheelZoomSettings.Role.MODE]?.takeIf { route != null }
+        val volume = if (zoomActive && route != null) bridgeZoomKeys.filterKeys { it != WheelZoomSettings.Role.MODE }.values else emptyList()
+        bridgeInput?.update(if (learning != null) intArrayOf() else (bridgeBaseKeys.toList() + listOfNotNull(mode) + volume).distinct().toIntArray(), learning == null)
+    }
+    private fun endBridgeZoom() {
+        if (zoomActive || bridgeZoom.zoomMode) zoomEpoch++
+        zoomActive = false; zoomDeadline = 0L; bridgeZoom.timeOut()
+    }
+
+    private fun onBridgeZoomKey(event: GeelySteeringKeyEvent): Boolean {
+        if (bridgeZoomKeys.isEmpty()) return false
+        refreshZoomEligibility()
+        val role = bridgeZoomKeys.entries.firstOrNull { it.value == event.keyCode }?.key ?: return false
+        val route = bridgeZoomRoute() ?: return false
+        val now = SystemClock.elapsedRealtime()
+        if (now - event.eventTimeMs !in 0..2_000L) return true
+        val volumes = bridgeZoomKeys.filterKeys { it != WheelZoomSettings.Role.MODE }.values
+        val confirmed = volumes.all { bridgeInput?.ownsCanonicalKey(it) == true }
+        if (role != WheelZoomSettings.Role.MODE && (!zoomActive || !confirmed)) return true
+        val single = event.action == GeelySteeringKeyEvent.ACTION_SINGLE
+        if (event.action !in 0..2) return false
+        val action = bridgeZoom.onKey(role, event.action != GeelySteeringKeyEvent.ACTION_UP, true, true, false, event.keyCode)
+        if (single) bridgeZoom.onKey(role, false, true, true, false, event.keyCode)
+        when (action) {
+            WheelZoomKeys.Action.MODE_ON -> {
+                zoomEpoch++; zoomActive = true
+                zoomDeadline = if (appContext?.let(WheelZoomSettings::behaviour) == WheelZoomSettings.Behaviour.TIMED) now + 2_000L else Long.MAX_VALUE
+                updateBridgeKeys()
+            }
+            WheelZoomKeys.Action.MODE_OFF -> { endBridgeZoom(); updateBridgeKeys() }
+            WheelZoomKeys.Action.ZOOM_IN, WheelZoomKeys.Action.ZOOM_OUT -> {
+                val epoch = zoomEpoch
+                controller?.zoomDashboardMap(action == WheelZoomKeys.Action.ZOOM_IN) {
+                    zoomActive && epoch == zoomEpoch && SystemClock.elapsedRealtime() < zoomDeadline &&
+                        bridgeZoomRoute() == route && volumes.all { bridgeInput?.ownsCanonicalKey(it) == true }
+                }
+            }
+            else -> Unit
+        }
+        return action != WheelZoomKeys.Action.PASS
     }
 
     fun reloadSteeringProfile(context: Context) = synchronized(this) {
@@ -250,11 +372,11 @@ internal object CarPlayMediaKeys {
     fun steeringDiagnostics(): String = synchronized(this) {
         val permitted = appContext?.checkSelfPermission(android.Manifest.permission.READ_LOGS) == android.content.pm.PackageManager.PERMISSION_GRANTED
         "systemLogAccess=$permitted\n" + SteeringLogAccess.diagnostics() + "\n" +
-            (geelyInput?.diagnostics() ?: "last: $lastGeelyInputDiagnostics") + "\n" +
+            (bridgeInput?.diagnostics() ?: "last: $lastGeelyInputDiagnostics") + "\n" +
             (keyLogMonitor?.diagnostics() ?: "last: $lastKeyLogDiagnostics") + "\n" + observedKeys.joinToString("\n")
     }
 
-    fun steeringDirectReady(): Boolean = synchronized(this) { geelyInput?.ready() == true }
+    fun steeringDirectReady(): Boolean = synchronized(this) { bridgeInput?.ready() == true }
 
     private fun onObservedKey(key: SteeringObservedKey) {
         val learner = synchronized(this) {
@@ -263,10 +385,16 @@ internal object CarPlayMediaKeys {
             learning?.onKey
         }
         if (learner != null) { learner(key); return }
+        // carlito | A bridge-owned key can also be logged/broadcast by the stock dispatcher.
+        if (key.source !in listOf("oneos", "ecarx", "vehicle_bridge") && bridgeInput?.ownsCanonicalKey(
+                GeelySteeringKeyCodes.canonicalize(key.keyCode) ?: key.keyCode) == true) return
         if (SystemClock.elapsedRealtime() < suppressedUntil) return
         val profile = synchronized(this) { steeringProfile }
         val binding = profile?.bindings?.firstOrNull {
-            it.keyCode == key.keyCode && it.source == key.source &&
+            (it.keyCode == key.keyCode || it.isVendorInput &&
+                GeelySteeringKeyCodes.canonicalize(it.keyCode)?.let { code ->
+                    code == GeelySteeringKeyCodes.canonicalize(key.keyCode) } == true) &&
+                (it.source == key.source || it.isVendorInput && key.source in listOf("oneos", "ecarx", "vehicle_bridge")) &&
                 (key.source != "logcat" || it.logTag == key.logTag) &&
                 it.logContains == key.logContains &&
                 (key.source != "broadcast" || (it.broadcastAction == key.broadcastAction && it.keyExtra == key.keyExtra && it.eventExtra == key.eventExtra))
@@ -298,6 +426,8 @@ internal object CarPlayMediaKeys {
     fun consumesHardwareKey(keyCode: Int): Boolean = synchronized(this) {
         val standard = CarPlayMediaButton.forKeyCode(keyCode) != null || CarPlayMediaButton.opensSiri(keyCode)
         ((learning != null || SystemClock.elapsedRealtime() < suppressedUntil) && standard) ||
+            bridgeInput?.ownsRawKey(keyCode) == true ||
+            bridgeInput?.ownsCanonicalKey(GeelySteeringKeyCodes.canonicalize(keyCode) ?: keyCode) == true ||
             steeringProfile?.bindings?.any { it.keyCode > 0 && it.keyCode == keyCode } == true
     }
 
@@ -359,8 +489,11 @@ internal object CarPlayMediaKeys {
     }
 
     private fun releaseLocked() {
-        geelyInput?.close()
-        geelyInput = null
+        endBridgeZoom(); mainHandler.removeCallbacks(zoomPoll)
+        instrumentStatus?.close(); instrumentStatus = null; bridgeZoomKeys = emptyMap()
+        steeringGeneration++
+        bridgeInput?.close()
+        bridgeInput = null
         keyLogMonitor?.close()
         keyLogMonitor = null
         monitorGeneration++
@@ -404,7 +537,7 @@ internal object CarPlayMediaKeys {
     }
 
     private fun send(index: Int, source: String) {
-        val group = if (source in listOf("oneos", "logcat", "broadcast")) source else "media_session"
+        val group = if (source in listOf("oneos", "ecarx", "vehicle_bridge", "logcat", "broadcast")) source else "media_session"
         val now = SystemClock.elapsedRealtime()
         synchronized(this) {
             if (learning != null || now < suppressedUntil) return
@@ -421,7 +554,11 @@ internal object CarPlayMediaKeys {
         Log.i(TAG, "media key $source -> CarPlay $index sent=$sent")
     }
 
-    private val callback = CarPlayMediaCallback(::send, ::consumesHardwareKey)
+    private val callback = CarPlayMediaCallback(
+        send = ::send,
+        consumesKey = ::consumesHardwareKey,
+        experimentalDiLink3Keys = { appContext?.let(BydOutputSettings::carPlayCallControls) == true },
+    )
 
     /** Whether [next] changes what the media session's metadata shows; position and play state do not. */
     internal fun metadataChanged(previous: CarPlayNowPlaying, next: CarPlayNowPlaying): Boolean =
@@ -501,15 +638,21 @@ internal object CarPlayMediaKeys {
  */
 internal class CarPlayMediaCallback(
     private val send: (index: Int, source: String) -> Unit,
-    private val consumesKey: (Int) -> Boolean,
+    private val consumesKey: (Int) -> Boolean = { false },
+    private val experimentalDiLink3Keys: () -> Boolean = { false },
 ) : MediaSession.Callback() {
-    constructor(send: (index: Int, source: String) -> Unit) : this(send, { false })
+    constructor(send: (index: Int, source: String) -> Unit) : this(send, { false }, { false })
+
+    // carlito: Preserve upstream's named opt-in with a trailing send callback.
+    constructor(experimentalDiLink3Keys: () -> Boolean, send: (index: Int, source: String) -> Unit) :
+        this(send = send, consumesKey = { false }, experimentalDiLink3Keys = experimentalDiLink3Keys)
 
     override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
         @Suppress("DEPRECATION")
         val event = mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
         if (consumesKey(event.keyCode)) return true
-        val index = CarPlayMediaButton.forKeyCode(event.keyCode) ?: return super.onMediaButtonEvent(mediaButtonIntent)
+        val index = CarPlayMediaButton.forKeyCode(event.keyCode, experimentalDiLink3Keys())
+            ?: return super.onMediaButtonEvent(mediaButtonIntent)
         if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
             send(index, KeyEvent.keyCodeToString(event.keyCode))
         }

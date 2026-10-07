@@ -17,10 +17,15 @@ Enable BYD navigation in settings. In DiAuto it is opt-in under Navigation; in D
 DiLink 3.0 head units (Android 10, Qualcomm 6125, "1for2" cluster) have no SOME/IP service and ship the stock AMap adapter as `com.example.amapservice` instead of `com.byd.amapservice`. DiPlay sends it the same navigation broadcasts. That adapter shows preformatted text rather than the numeric extras, so DiPlay also sends `SEG_REMAIN_DIS_AUTO` ("250 m"), `ROUTE_REMAIN_DIS_AUTO` ("5.4 km"), `ROUTE_REMAIN_TIME_AUTO` ("10 min") and `ETA_TEXT` ("15:55"); without them the cluster shows -1. The cluster keeps its stock view until it is switched, so DiPlay also runs, through its adb shell, the calls the stock ClusterDebug app uses (`service call AutoContainer 2 i32 1000 i32 <command> s16 ""`):
 
 - While CarPlay guidance is active: 39, "simple navigation", for the native turn card.
-- While "CarPlay map on dashboard" shows its map window on the cluster: 17, "half-screen projection". The map window uses DiLink 3's projection display, `fission_bg_xdjaVirtualSurface` (1920x720, owned by `com.xdja.containerservice`). The map takes priority over the turn card.
+- While "CarPlay map on dashboard" shows its map window on the cluster: 17, "half-screen projection", sent 1 s after 16, "full-screen projection". After 18 the cluster ignores 17 on its own and its projection area stays empty; sending 16 first brings it back. The map window uses DiLink 3's projection display, `fission_bg_xdjaVirtualSurface` (1920x720, owned by `com.xdja.containerservice`). The map takes priority over the turn card.
 - When both end: 18, "projection off", only if DiPlay changed the mode.
 
 Approve DiPlay's ADB access once with "Check ADB access"; without it the broadcasts are still sent but the cluster keeps its stock view. The DiLink 5 "Dashboard map only in Small and Full navi" option does not apply: DiLink 3 does not report the wheel-menu mode.
+
+Projection entry validates the replies from 16 and 17 separately. A refused or missing reply,
+interrupted delay, or withdrawn map request attempts 18 immediately so full-screen projection
+does not remain active while waiting for the normal retry. The recovery marker is durable before
+16; failed restoration retains it and blocks new output until stock mode is restored.
 
 The projection display does not exist after the car starts until the cluster has projected once. When DiPlay opens with BYD navigation on and the display is missing, it runs 16 (projection on), 35 (Di4.0 mode, which creates the display) and 18, as BYD DashCast does; the cluster shows an empty projection area for about six seconds. The display then stays until the car restarts. The map window selects this display through the same exact-name and 1920x720 check as DiLink 4.0. If a CarPlay session started before the display existed, DiPlay shows the map window when the display appears and reconnects once so the iPhone sends the 1920x720 cluster stream.
 
@@ -108,6 +113,54 @@ With **Settings → BYD navigation → CarPlay joystick on the wheel** turned on
 - every key can be reassigned in the settings by pressing it; a key assignment takes the next press before the joystick does.
 
 The wheel's dashboard-menu key would be the natural back key, but BYD takes it before the input filter (keycode 309, consumed while queueing), and even read from the input device the dashboard still opens its own menu on the same press. So the custom key goes back instead.
+
+### CarPlay calls: wheel call keys and the dashboard (DiLink 3)
+
+BYD's own CarPlay app (`com.byd.carplay.ui`) answers CarPlay calls from the wheel and shows them on the instrument cluster and the HUD. It relies on `sys.carplay.*` properties that only BYD's root CarPlay daemon can set, so with DiPlay BYD's window manager treats the call key as a Bluetooth phone key. Read from the firmware (`PhoneWindowManager.interceptKeyBeforeQueueing`, `BinderCarplayServer.CarplayNotifyInstrumentCallState`):
+
+- the call key (313) is handled while queueing, before the input filter: BYD opens its Bluetooth phone screen on release, but the key still reaches the focused app and the wheel key service;
+- the hang-up key (314) and the multifunction "menu" key (309) reach no app; on release BYD sends `com.byd.btcall.action.CLOSE_BLUETOOTHSETTING` with the key code to the current user;
+- the CarPlay voice keys (327 short, 328 long) reach the wheel key service before BYD's window manager keeps them.
+
+DiPlay follows the iPhone's calls from iAP2 CallStateUpdate (0x4155, already subscribed). The separate
+**CarPlay call keys (experimental)** setting is disabled by default and requires explicit opt-in.
+With that setting enabled, during a CarPlay call:
+
+- the call key answers a ringing call with CarPlay's telephony HID Hook Switch, and is kept during a connected call. It works through the wheel key service and on the CarPlay screen; since BYD has already opened its phone screen by then, DiPlay brings CarPlay back to the front;
+- the hang-up and menu keys end or decline the call (telephony HID Drop), through BYD's broadcast; no setting or service is needed;
+- with a CarPlay session, the CarPlay voice keys open Siri through the wheel key service. DiLink 3's play/pause key (331) toggles CarPlay playback.
+
+With the experimental controls disabled, all new call/voice/play-pause key behavior passes through.
+Outside a CarPlay call every call key keeps BYD's action. The exported hang-up receiver requires
+the sender's `android.permission.DUMP`; BYD's system-server window manager can send it, while an
+ordinary third-party app cannot. Actual sender/key behavior still requires vehicle acceptance.
+
+**Settings → BYD navigation → CarPlay calls on the dashboard** (optional, needs ADB over network) also writes what BYD's CarPlay app writes, through the adb shell (`BydCarPlayCallTool`, feature ids resolved on the car): the instrument's call state and caller (device 1007, `INSTRUMENT_CALL_STATE_SET`, `INSTRUMENT_CALL_INFO_SET` as UTF-16LE up to 60 bytes), the call time every second (`INSTRUMENT_CALL_TIME_HOUR/MINUTE/SECOND_SET`), the car's call state (device 1023, `SET_CALL_STATE_SET`, `SET_CMD_BTCALL_STATE_SET`: 2 ringing, 1 dialing, 3 active, 5 ended) and the audio system's CarPlay call status (device 1002, `AUDIO_CARPLAY_CALL_STATUS`: 0 in a call, 1 idle). The call time comes from a small watcher under the adb shell that also ends the call on the car if DiPlay's process goes away mid-call. Not yet checked in a car.
+
+Before its first vehicle write, a call reserves a token and waits for confirmation that its shell
+watcher initialized. A failed launch or missing readiness acknowledgment prevents new call-state
+writes; one retry is attempted for an unchanged call. Cancelling a reservation that has made no
+vehicle writes does not send idle values; failed or uncertain writes retain cleanup ownership.
+
+Each displayed-call lifetime has a new package-qualified UUID token. The shell tool serializes its
+ownership marker and vehicle writes with a file lock. A stale watcher, another variant's old
+process, or a prior PID cannot update or clear a newer call. Cleanup retires only its own token;
+an end write that throws retains ownership for retry. A queued update rechecks that dashboard
+output remains enabled before writing. If the car refuses one of a call's writes (a non-zero result
+or an error), the tool sets the writes it already made back to their idle values, newest first, and
+reports a failure so DiPlay retries on the next call update instead of treating the call as shown. A
+feature this firmware does not define is skipped, not undone. End writes are all attempted; a
+refused one keeps ownership so the end is retried. The idle values are what BYD's CarPlay app sends
+when a call ends, not a snapshot of the previous state, because these command features have no
+confirmed read-back. This bounds lifecycle interference; it does not establish
+that every vehicle feature id/value or partial-write outcome is correct on a particular firmware.
+
+The microphone already follows the iPhone's stream type: a call records with `VOICE_COMMUNICATION` and the platform's echo canceller and noise suppressor in communication mode, Siri with `VOICE_RECOGNITION`.
+
+Both experimental settings default off. The opt-in feature is included for release testing;
+physical acceptance still needs confirmation on each target firmware: answering/ending a real call
+from the wheel, caller card and timer on cluster/HUD, microphone routing, cancellation/disable and
+process-death cleanup. The reported live key codes alone do not prove these behaviors.
 
 ## ADB vehicle-data settings and firmware scope
 

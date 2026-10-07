@@ -1,0 +1,74 @@
+# 吉利投屏布局
+
+本功能在已有 HUD 导航显示中加入可编辑布局，默认优先显示导航，车辆信息由用户选择添加。以下行为依据当前源代码记录；未据此确认 APK 发布、车机安装或实车显示效果。
+
+## 配置入口
+
+在 DiPlay 设置的“吉利车机”区域中：
+
+1. 开启“HUD 导航提示”，按系统提示允许悬浮显示。
+2. 在“HUD 投影屏幕”中确认目标显示屏。自动选择只适用于名称含 HUD 且候选唯一的第二屏；其他显示屏必须手动选择。
+3. 通过“HUD 内容大小”调整内容整体大小。
+4. 打开“HUD / 仪表布局”编辑内容；按需要开启“导航三指飞屏”。
+
+显示屏列表来自 Android 公开显示 API，排除主屏及已关闭的显示屏。选择某块显示屏并不意味着拥有厂商私有 HUD 或仪表的访问能力；系统仍可拒绝创建投屏窗口。
+
+## 编辑草稿与保存
+
+初始布局只有导航，位置与尺寸覆盖完整画布。可添加车速、发动机转速、左转向灯、右转向灯、远光灯、近光灯及时间，每种内容最多一项。
+
+拖动预览中的内容改变位置，或填写水平位置、垂直位置、宽度和高度的百分比后选择“应用位置和尺寸”。宽高范围为 8–100%，内容须完整位于画布内。可切换单项显示、移除选中内容，或恢复导航布局。
+
+上述修改先保留在编辑草稿中。“保存并应用”验证并保存布局，然后刷新已开启的投屏窗口；“返回”不修改原先已保存的布局。编辑器被系统重建时可恢复当前草稿。保存失败会保留编辑器并提示重试。
+
+编辑器与投屏使用同一个比例坐标渲染器。预览按目标屏幕比例放入可用区域，超宽 HUD 通过留黑边保持比例，不拉伸内容；没有可识别目标屏幕时，预览暂用 3:1 比例。预览比例不能替代车机上实际可读性确认。
+
+## 导航三指飞屏
+
+该选项默认关闭，由用户主动开启。开启后，在 CarPlay 内三指上滑可显示或收起选定屏幕上的导航内容；车辆信息项继续遵从各自的显示设置。下滑打开设置的原有操作保留。
+
+操作需要手机已提供导航提示、已有系统悬浮授权、可确定的目标第二屏，以及已保存布局中处于显示状态的导航项。条件不足时显示相应操作提示。显示导航时可开启 HUD 导航显示；保存布局本身不替用户开启总开关。
+
+导航使用既有 CarPlay 导航提示来源及绘制逻辑，收到提示后刷新；连续 30 秒没有新提示时清除旧提示。本功能显示导航提示，并不声明完整地图投屏能力。
+
+## 车辆数据与可用状态
+
+车辆信息通过既有公开 `VehicleBridgeClient.readProperties()` 从独立 GD APK 读取。布局功能不包含新增的 OEM 车辆实现，也不向车辆写入数据。GD APK 可用、对 DiPlay 的读取授权及实际车辆数据支持是独立前提。
+
+读取约每秒执行一次，只接受当前接口版本中状态为 `READ_OK` 的有限数值。读失败或无有效值时交付空读数。每个快照的本地年龄从接口调用开始前计时，超过 3 秒后不再当作有效值展示；这限制应用收到数据后的使用时间，不能替代数据源自身的新鲜度保证。
+
+| 内容 | 显示条件与含义 |
+| --- | --- |
+| 车速 | 单位明确为 km/h、kph、kmh 或 m/s；m/s 转为 km/h。有效展示范围为 0–300 km/h。 |
+| 发动机转速 | 单位明确为 rpm、r/min 或转/分；有效展示范围为 0–15000 rpm。 |
+| 左右转向灯、远近光灯 | 已成功读取的数值 0 表示关，1 表示开；其他数值不解释为有效状态。 |
+| 时间 | 来自 Android 本地时钟，以 HH:mm 展示，不依赖 GD 车辆数据。 |
+| 缺少、过期、读取失败或单位未确认 | 显示横线“—”，不以 0 代替未知值。 |
+
+车速、转速的单位校准责任在数据源侧；布局编辑器不猜测单位，也不提供单位校准功能。无需车辆信息时，保持仅导航的默认布局即可。
+
+## 界面依据与限制
+
+编辑器沿用既有 SteeringControlsActivity 的原生 View 视觉：深色背景、分层表面、明亮正文、次级说明及浅蓝动作色。滚动容器处理系统栏、屏幕缺口和输入法区域，输入、按钮与开关采用至少 56dp 的交互高度。该功能属于现有视觉系统的延伸。
+
+普通页面仅显示完成操作所需的产品提示。接口状态、窗口错误、显示屏内部标识等技术信息属于开发者诊断范围，应遵从项目的“设置 → 关于 → 版本”解锁约定。
+
+当前仍有以下实际限制：
+
+- 第二屏必须由 Android 向当前应用公开且可用；无法通过本功能开启厂商私有显示通道。
+- 获得悬浮授权及选择显示屏后，系统仍可能拒绝窗口创建，须以实际设备结果判断。
+- GD 未安装、读取未授权、字段不支持或单位未确认时，相关车辆项可能持续显示横线。
+- 当前记录为源码阶段说明，未执行测试；没有模拟器或车机截图，未声称视觉验证或实车验证通过。
+
+## 源码依据
+
+配置与手势入口为 `DiPlayActivity.kt`、`CarPlayHostActivity.kt`；布局和编辑器为 `GeelyProjectionLayout.kt`、`GeelyProjectionEditorActivity.kt`；数据读取为 `ProjectionVehicleReader.kt`；公开第二屏窗口、导航生命周期和诊断为 `GeelyHudProjection.kt`；产品提示位于 `projection.xml`。
+
+## Generic navigation motion input (carlito)
+
+- The optional vehicle-speed switch uses the public GD property client and the existing iAP2 location provider. Location reporting must also be enabled; settings apply on reconnection.
+- The editor, live projection and motion provider share one off-thread bridge reader per app process. It polls once per second and requests only projection/motion categories, rather than every configured vehicle property.
+- Speed must have a recognized km/h or m/s unit. Gear must explicitly use the normalized PRND contract (0=P, 1=R, 2=N, 3=D). Verified G636/FX11 presets now label their existing gear encoding accordingly. Unconfirmed reports retain raw units.
+- Unknown values, readings older than three seconds, and gear changes clear queued samples. Motion reads use fresh VHAL responses, direct ECARX calls or a bounded sensor cache; no missing gear is replaced with D.
+- This remains compile/source reviewed, not vehicle verified. One-second property polling is supplementary vehicle-speed input, not a claim of full inertial navigation support.
+The bridge motion switch takes priority if both bridge and BYD speed sources are enabled; its default is off and it does not silently fall back to a different vehicle source.

@@ -36,6 +36,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -f docs/STABLE-BASELINE-0.2.13.1.md ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Stable connection baseline: upstream changes require selective integration."
+            exit 0
+          fi
           upstream_sha="$(git rev-parse upstream/main)"
           if git merge-base --is-ancestor "$upstream_sha" HEAD; then
             echo "changed=false" >> "$GITHUB_OUTPUT"

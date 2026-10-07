@@ -2,6 +2,9 @@ package com.shilapi.xcertplay.media
 
 import android.media.AudioManager
 
+// carlito | FaceTime uses the same communication resources as a telephone call.
+internal fun isPhoneAudio(type: String) = type.equals("telephony", true) || type.equals("facetime", true)
+
 internal enum class AudioChannelMappingMode {
     MOBILE_COMPATIBLE,
     AUTOMOTIVE_BUS,
@@ -59,7 +62,8 @@ internal object AudioChannelMapper {
         payloadType: Int,
         navigationStreamType: Int,
     ): AudioChannelSelection = when (audioType) {
-        "telephony" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
+        "telephony", "facetime" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
+        "ringtone", "ring" -> AudioChannelSelection(AudioChannel.RINGTONE, AudioContentType.SPEECH)
         "speechrecognition" ->
             AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
         "media" -> AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
@@ -73,7 +77,8 @@ internal object AudioChannelMapper {
         payloadType: Int,
         navigationStreamType: Int,
     ): AudioChannelSelection = when (audioType) {
-        "telephony" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
+        "telephony", "facetime" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
+        "ringtone", "ring" -> AudioChannelSelection(AudioChannel.RINGTONE, AudioContentType.SPEECH)
         "speechrecognition" ->
             AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
         "media", "compatibility" ->
