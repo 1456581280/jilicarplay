@@ -38,7 +38,8 @@ internal object AutomaticVehicleProfile {
                 address[3] == binding.propertyId && (address[2] == binding.area ||
                     binding.area == "0" && address[2] in setOf("global", "auto", "auto(1,0)")) &&
                     (address[0] == binding.chain && address[1] == binding.kind ||
-                        binding.chain == "gd_vehicle_bridge" && address[0] in setOf("ecarx_service", "direct_binder", "vhal") &&
+                        binding.chain == "gd_vehicle_bridge" && address[0] in setOf("ecarx_service", "direct_binder",
+                            "vhal_2_0", "xui_ecarx_proxy", "ecarx_property_aidl") &&
                         address[1] in setOf("property", "signal"))
             } }
             .groupBy { it.field }.mapNotNull { (_, matches) ->
