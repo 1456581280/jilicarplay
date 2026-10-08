@@ -1,6 +1,6 @@
 # 0.2.15 验证记录
 
-本次变更仅涉及正式版本号、首页展示和用户 GitHub 仓库的版本更新功能。既有连接、车辆属性、本地报告、设置逻辑保留。
+本次变更涉及正式版本号、首页展示、用户 GitHub 仓库的版本更新、自定义 HTML 首页设置和三个源码入口。既有连接、车辆属性、本地报告及其设置逻辑保留。
 
 - `:mobile:assembleRelease`、`:mobile:lintRelease` 成功。
 - 41 项相关单元/界面测试通过：HomeCompactLayoutTest、ReleasePolicyTest、LocalOnlyProfilesTest、DiagnosticExportFallbackTest、DiagnosticExportStoreTest、DiagnosticExportUiTest、BydSettingsReconnectTest、ExistingWifiSettingsTest、SettingsWidgetsTest。
@@ -13,3 +13,9 @@
 尚未验证：实车安装、实车网络环境下从后续版本完成整条安装流程。仓库仍按用户要求保留当前可见性；只有在用户开放仓库访问且车机网络可达 GitHub 后，匿名自动检查才可工作。
 
 更新规则和维护步骤见 [GITHUB-UPDATES.md](GITHUB-UPDATES.md)。
+
+## HTML 首页及源码入口补充验证
+
+- HtmlHomeTest 覆盖 UTF-8 大小限制、原子保存、恢复默认不影响其他文件、拒绝无手势/子框架/非白名单导航、WebView 网络和文件隔离、原生恢复按钮、编辑保存恢复和三个源码按钮的确切 URL。
+- 原生 UI 渲染检查包含源码入口和 HTML 编辑器。HTML 模板提供宽屏双列、窄屏单列 CSS；WebView 的真实 HTML 渲染尚未实机验证。浏览器安全策略拒绝本地 HTML 预览，未绕过该限制。
+- 本轮变更后 22 项测试通过：HtmlHomeTest、HomeCompactLayoutTest、ReleasePolicyTest、LocalOnlyProfilesTest、DiagnosticExportUiTest、SettingsWidgetsTest。

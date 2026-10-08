@@ -69,6 +69,7 @@ import kotlin.math.roundToInt
 class DiPlayActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var page = "home"
+    private var htmlHome: HtmlHomeView? = null
     private val releaseUpdates by lazy { ReleaseUpdates(this) }
     private var clusterSafeAreaDialog: Dialog? = null
     private var clusterContentRequestVersion = 0L
@@ -298,6 +299,7 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        htmlHome?.dispose(); htmlHome = null
         releaseUpdates.close()
         cancelUsbPermissionSetup()
         WheelKeyService.cancelLearning()
@@ -334,6 +336,15 @@ class DiPlayActivity : ComponentActivity() {
         bydAdbControls = null
         adbSwitches.clear()
         adbStatus = null
+        htmlHome?.dispose(); htmlHome = null
+        if (page == "home") {
+            HtmlHome.read(this)?.let { html ->
+                val custom = HtmlHomeView(this, html, ::htmlAction)
+                htmlHome = custom; rootScroll = null; pendingScrollY = null
+                renderedPage = page; setContentView(custom); refreshStatus()
+                return
+            }
+        }
         val compact = isCompactLayout
         val scroll = ScrollView(this).apply {
             if (page == "home") background = JourneyBackdrop(this@DiPlayActivity) else setBackgroundColor(BG)
@@ -430,7 +441,28 @@ class DiPlayActivity : ComponentActivity() {
         setupError?.let { content.addView(label(it, 16, WARNING).apply { setPadding(0, dp(16), 0, 0) }) }
     }
 
+    private fun editHtmlHome() = HtmlHome.edit(this) { page = "home"; render() }
+
+    private fun htmlAction(action: String) {
+        when (action) {
+            "connect" -> if (setupError == null) { if (CarPlayBackgroundSession.hasSession()) openProjection() else connect(true) }
+            "usb" -> if (setupError == null) connect(false)
+            "choose-device" -> choosePhone()
+            "disconnect" -> CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
+            "settings" -> { page = "settings"; render() }
+            "source" -> { page = "about"; render() }
+            "check-update" -> releaseUpdates.checkForUpdate(manual = true)
+            "edit-home" -> editHtmlHome()
+            "default-home" -> AlertDialog.Builder(this).setMessage("恢复默认首页？")
+                .setNegativeButton("取消", null).setPositiveButton("恢复默认") { _, _ -> HtmlHome.reset(this); page = "home"; render() }.show()
+        }
+    }
+
     private fun settings(content: LinearLayout) {
+        section(content, "自定义 HTML 首页") { card ->
+            card.addView(label("粘贴 AI 生成的 HTML，预览并保存；可随时恢复默认首页。", 16, MUTED))
+            card.addView(button("编辑首页 / HTML", false) { editHtmlHome() }, matchButton(8, 56))
+        }
         content.addView(label(getString(R.string.your_drive_your_way), 34, TEXT, true))
         content.addView(label(getString(R.string.apply_reconnects_carplay_for_size_resolution_music_buffer), 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, getString(R.string.carplay_controls), R.drawable.ic_dp_controls) { card ->
@@ -971,13 +1003,14 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(label(getString(R.string.receiver_based_on_xcertplay_licensed_under_gpl_3_0_diplay), 16, MUTED))
         }
         section(content, getString(R.string.ui_project_source)) { card ->
-            card.addView(label(getString(R.string.ui_carlito_modification_credit), 16, MUTED))
-            card.addView(button(getString(R.string.ui_open_upstream_source), false) {
-                openProjectLink("https://github.com/shihabal3amri/DiPlay")
-            }, matchButton(8, 56))
-            card.addView(button(getString(R.string.ui_open_carlito_fork), false) {
-                openProjectLink("https://github.com/carlito12345/diplay")
-            }, matchButton(8, 56))
+            card.addView(label("基于 DiPlay 开源项目及 carlito 二次开发版本，本版本由 jilicarplay 继续开发。", 16, MUTED))
+            listOf(
+                "开源项目：shihabal3amri/DiPlay" to "https://github.com/shihabal3amri/DiPlay",
+                "上游二次开发地址：carlito12345/DiPlay" to "https://github.com/carlito12345/DiPlay",
+                "本项目二次开发地址：1456581280/jilicarplay" to "https://github.com/1456581280/jilicarplay",
+            ).forEach { (title, url) ->
+                card.addView(button(title, false) { openProjectLink(url) }, matchButton(8, 72))
+            }
         }
     }
 
@@ -3090,6 +3123,11 @@ class DiPlayActivity : ComponentActivity() {
             disconnectButton?.alpha = if (running) 1f else .5f
             lastRunning = running
         }
+        htmlHome?.state(CarPlayBackgroundSession.active, running && !CarPlayBackgroundSession.active,
+            when { setupError != null -> getString(R.string.setup_needs_attention)
+                CarPlayBackgroundSession.active -> getString(R.string.carplay_connected)
+                running -> getString(R.string.connecting_to_your_iphone)
+                else -> getString(R.string.ready_when_you_are) }, version())
         connectButton?.isEnabled = setupError == null
     }
     private fun authorizeClusterRouting() {

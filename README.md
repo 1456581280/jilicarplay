@@ -1,3 +1,5 @@
+> 自定义首页：设置中粘贴 AI 生成的 HTML，可预览、保存或恢复默认。见 [HTML 首页与功能入口](docs/HTML-HOME.md)。
+
 # JiliCarPlay：本地数据版本
 
 当前正式版：**0.2.15**，包含自适应首页及 [GitHub 更新功能](docs/GITHUB-UPDATES.md)。安装包见 [Releases](https://github.com/1456581280/jilicarplay/releases)。
