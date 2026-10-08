@@ -193,7 +193,9 @@ class UsbPermissionSetupTest {
     )
 
     private fun runShell(script: String): String {
-        val process = ProcessBuilder("sh", "-c", script).redirectErrorStream(true).start()
+        // Pass the script through stdin so Windows command-line quoting cannot alter it.
+        val process = ProcessBuilder("sh").redirectErrorStream(true).start()
+        process.outputStream.bufferedWriter().use { it.write(script); it.newLine() }
         assertTrue(process.waitFor(3, TimeUnit.SECONDS))
         return process.inputStream.bufferedReader().readText()
     }

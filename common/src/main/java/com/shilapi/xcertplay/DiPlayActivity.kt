@@ -81,8 +81,6 @@ class DiPlayActivity : ComponentActivity() {
     private var initialLaunch = true
     private var notificationTransport = true
     private var exportInProgress = false
-    private var reportUploadInProgress = false
-    private var reportIssueDescription = ""
     private var usbPermissionOperation: UsbPermissionSetup.Operation? = null
     private var usbPermissionDialog: AlertDialog? = null
     internal var usbPermissionOperationFactory: (Context) -> UsbPermissionSetup.Operation = {
@@ -92,8 +90,6 @@ class DiPlayActivity : ComponentActivity() {
     private var testToneTrack: AudioTrack? = null
     private var toneStop: Runnable? = null
     private var exportButton: Button? = null
-    private var reportUploadButton: Button? = null
-    private var reportIssueInput: EditText? = null
     private var developerVersionTaps = 0
     private var rootScroll: ScrollView? = null
     private var renderedPage: String? = null
@@ -209,7 +205,6 @@ class DiPlayActivity : ComponentActivity() {
             getString(R.string.setup_error_auth)
         }
         pendingCarHotspotSetup = savedInstanceState?.getBoolean("pending_car_hotspot") ?: false
-        reportIssueDescription = savedInstanceState?.getString("report_issue_description").orEmpty()
         bydVehicleAdvancedExpanded = savedInstanceState?.getBoolean("byd_vehicle_advanced") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
         render()
@@ -231,8 +226,6 @@ class DiPlayActivity : ComponentActivity() {
         handleWirelessRecovery()
     }
     override fun onSaveInstanceState(outState: Bundle) {
-        reportIssueDescription = reportIssueInput?.text?.toString() ?: reportIssueDescription
-        outState.putString("report_issue_description", reportIssueDescription)
         outState.putString("page", page)
         outState.putBoolean("pending_car_hotspot", pendingCarHotspotSetup)
         outState.putBoolean("byd_vehicle_advanced", bydVehicleAdvancedExpanded)
@@ -330,9 +323,6 @@ class DiPlayActivity : ComponentActivity() {
             resources.configuration.screenHeightDp < 450
 
     private fun render() {
-        reportIssueDescription = reportIssueInput?.text?.toString() ?: reportIssueDescription
-        reportIssueInput = null
-        reportUploadButton = null
         // A pending assignment belongs to the widgets being replaced, never to another page.
         WheelKeyService.cancelLearning()
         // A restore still waiting for layout keeps its target: the old page was never laid out.
@@ -540,33 +530,6 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(button(getString(R.string.choose_save_location), false) { chooseReportDestination() }, matchButton(10, 60))
             val destination = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) getString(R.string.reports_save_to_downloads_diplay) else getString(R.string.choose_where_to_save_your_report)
             card.addView(label(destination + getString(R.string.nothing_is_sent_automatically_protocol_payloads_and_creden), 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
-            reportIssueInput = EditText(this).apply {
-                hint = getString(R.string.describe_the_problem)
-                setText(reportIssueDescription)
-                setTextColor(TEXT)
-                setHintTextColor(MUTED)
-                minLines = 3
-                maxLines = 6
-                setPadding(dp(16), dp(12), dp(16), dp(12))
-                backgroundTintList = ColorStateList.valueOf(ACCENT)
-            }
-            card.addView(reportIssueInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
-            reportUploadButton = button(
-                if (reportUploadInProgress) getString(R.string.uploading_to_cloud) else getString(R.string.upload_report_to_cloud),
-                true,
-            ) {
-                val description = reportIssueInput?.text?.toString()?.trim().orEmpty()
-                if (description.isEmpty()) {
-                    toast(getString(R.string.describe_problem_before_uploading))
-                } else if (description.length > DiagnosticReportUpload.MAX_DESCRIPTION_LENGTH) {
-                    toast(getString(R.string.problem_description_too_long))
-                } else {
-                    reportIssueDescription = description
-                    uploadDiagnostics(description)
-                }
-            }.apply { isEnabled = !reportUploadInProgress }
-            card.addView(reportUploadButton, matchButton(12, 60))
-            card.addView(label(getString(R.string.report_upload_privacy), 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
         }
         section(content, getString(R.string.automatic_connection), R.drawable.ic_dp_automation) { card ->
             toggle(card, getString(R.string.connect_when_diplay_opens), getString(R.string.use_your_last_connection_type_and_selected_iphone), DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
@@ -1359,7 +1322,6 @@ class DiPlayActivity : ComponentActivity() {
                 }
             }, matchButton(12, 60))
             parent.addView(label(if (pendingCarHotspotSetup) getString(R.string.finish_setup_save_your_hotspot_details_to_use_this_mode) else if (carHotspotOff()) getString(R.string.hotspot_details_off) else getString(R.string.hotspot_details_saved), 15, if (carHotspotOff()) WARNING else MUTED).apply { setPadding(0, dp(12), 0, 0) })
-
         } else if (mode == WirelessHotspotMode.EXISTING_WIFI) {
             parent.addView(label(getString(R.string.existing_wifi_instructions), 16, MUTED))
             parent.addView(button(getString(R.string.open_car_wi_fi_settings), false) { openCarClientWifiSettings() }, matchButton(12, 60))
@@ -3304,45 +3266,6 @@ class DiPlayActivity : ComponentActivity() {
                 file.useLines { lines -> lines.forEach { line -> DiagnosticRedactor.redact(line)?.let { appendLine(it) } } }
             }
         }
-    }
-
-    private fun uploadDiagnostics(issueDescription: String) {
-        if (reportUploadInProgress) return
-        reportUploadInProgress = true
-        reportUploadButton?.apply { isEnabled = false; text = getString(R.string.uploading_to_cloud) }
-        val appContext = applicationContext
-        val fileName = reportFileName()
-        Thread({
-            val result = runCatching {
-                DiagnosticReportUpload.upload(fileName, issueDescription, buildDiagnosticReport(appContext))
-            }
-            runOnUiThread {
-                reportUploadInProgress = false
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                reportUploadButton?.apply { isEnabled = true; text = getString(R.string.upload_report_to_cloud) }
-                if (result.isSuccess) {
-                    reportIssueDescription = ""
-                    reportIssueInput?.text?.clear()
-                    AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.report_uploaded))
-                        .setMessage(getString(R.string.report_uploaded_message))
-                        .setPositiveButton(getString(R.string.done), null)
-                        .show()
-                } else {
-                    val tooLarge = result.exceptionOrNull() is DiagnosticReportTooLargeException
-                    val dialog = AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.report_upload_failed))
-                        .setMessage(getString(if (tooLarge) R.string.report_too_large_message else R.string.report_upload_failed_message))
-                    if (tooLarge) {
-                        dialog.setPositiveButton(getString(R.string.close), null)
-                    } else {
-                        dialog.setPositiveButton(getString(R.string.retry_report_upload)) { _, _ -> uploadDiagnostics(issueDescription) }
-                        .setNegativeButton(getString(R.string.close), null)
-                    }
-                    dialog.show()
-                }
-            }
-        }, "diplay-report-upload").start()
     }
 
     private fun exportDiagnostics(uri: Uri? = null) {

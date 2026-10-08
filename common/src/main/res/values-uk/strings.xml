@@ -567,17 +567,6 @@
     <string name="byd_adb_features">Функції BYD · потрібен ADB</string>
     <string name="return_home_icon">Значок повернення на головний екран авто</string>
     <string name="return_home_icon_description">Виберіть квадратне зображення для кнопки CarPlay, що повертає на головний екран авто. Новий значок з’явиться під час наступного підключення.</string>
-    <string name="describe_the_problem">Опишіть проблему, час її появи та очікуваний результат</string>
-    <string name="upload_report_to_cloud">Надіслати звіт у хмару</string>
-    <string name="uploading_to_cloud">Надсилання у хмару…</string>
-    <string name="describe_problem_before_uploading">Перед надсиланням опишіть проблему.</string>
-    <string name="problem_description_too_long">Опис не може перевищувати 2000 символів.</string>
-    <string name="report_upload_privacy">Надсилання виконується лише після натискання кнопки. Опис і знеособлений діагностичний звіт надсилаються разом.</string>
-    <string name="report_uploaded">Звіт надіслано</string>
-    <string name="report_uploaded_message">Хмара отримала опис проблеми та діагностичний звіт.</string>
-    <string name="report_upload_failed">Не вдалося надіслати звіт</string>
-    <string name="report_upload_failed_message">Перевірте підключення пристрою до Інтернету та повторіть спробу.</string>
-    <string name="retry_report_upload">Повторити</string>
     <string name="report_too_large_message">Розмір звіту перевищує 1 МіБ. Збережіть його на пристрої та надішліть вручну.</string>
     <string name="diagnostic_report_saved_in_app">Звіт збережено приватно в DiPlay, оскільки загальнодоступне місце збереження недоступне. Поділіться ним або перегляньте його тут. Нічого не надсилається автоматично.</string>
     <string name="diagnostic_report_saved_to_path">Звіт збережено в:\n%1$s\n\nВи також можете поділитися ним або переглянути його тут. Нічого не надсилається автоматично.</string>

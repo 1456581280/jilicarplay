@@ -55,8 +55,6 @@ class ProbeService : Service() {
                 NotificationChannel("vehicle_scan", "车辆扫描", NotificationManager.IMPORTANCE_LOW))
         }
         worker.execute {
-            runCatching { if (VehicleReportDelivery.pending(applicationContext).isNotEmpty())
-                VehicleReportDelivery.retry(applicationContext) }
             val previous = runCatching {
                 val text = openReport().bufferedReader(Charsets.UTF_8).use { it.readText() }
                 ProbeState(loading = false, summary = ProbeSummary.parse(text),
@@ -124,13 +122,6 @@ class ProbeService : Service() {
                         else -> "报告已保存在应用内，导出未完成，可点击“导出扫描报告”重试。"
                     }
                     application = application?.let { it.copy(message = it.message + "\n" + location) }
-                    progress("正在安排云端上传")
-                    try {
-                        VehicleReportDelivery.enqueue(applicationContext, time, text)
-                        VehicleReportDelivery.retry(applicationContext)
-                    } catch (error: Exception) {
-                        Log.e("DiPlayVehicleProbe", "Could not queue vehicle report", error)
-                    }
                     application?.let { outcome ->
                         runCatching { AutomaticVehicleProfile.save(applicationContext, outcome) }.onFailure {
                             Log.e("DiPlayVehicleProbe", "Application result save failed", it)

@@ -618,7 +618,7 @@
     <string name="geely_steering_wheel">按键兼容模式</string>
     <string name="geely_steering_wheel_description">安装车辆数据桥后，可用方向盘按键控制播放和打开 Siri。</string>
     <string name="steering_identification">按键识别</string>
-    <string name="steering_panel_intro">选择要设置的功能，按下对应的方向盘按钮。识别结果会自动填入，保存后生效并上传云端。</string>
+    <string name="steering_panel_intro">选择要设置的功能，按下对应的方向盘按钮。识别结果会自动填入，保存后在本机生效，不会上传。</string>
     <string name="steering_car_model">车型</string>
     <string name="steering_car_model_hint">填写车型和年款</string>
     <string name="steering_head_unit">车机型号</string>
@@ -638,7 +638,6 @@
     <string name="steering_restore_defaults">恢复原有按键</string>
     <string name="steering_default_restored">已恢复原有按键。再次保存可启用此配置。</string>
     <string name="steering_filled">“%1$s”已回填，保存后生效。</string>
-    <string name="steering_save_and_upload">保存并上传云端</string>
     <string name="steering_export">导出已保存的配置</string>
     <string name="steering_exported">配置已导出</string>
     <string name="steering_export_failed">导出失败，请换一个保存位置后重试。</string>
@@ -650,10 +649,6 @@
     <string name="steering_save_failed">配置保存失败，请重试。</string>
     <string name="steering_unassigned">未识别</string>
     <string name="steering_assigned">已识别</string>
-    <string name="steering_cloud_received">本机已保存，云端已收到配置。</string>
-    <string name="steering_cloud_pending">本机已保存，等待上传云端；联网后自动重试。</string>
-    <string name="steering_cloud_failed">本机已保存，上传失败，请再次保存以重试。</string>
-    <string name="steering_cloud_after_save">保存时会将车型、车机信息和按键映射上传云端。</string>
     <string name="steering_play_pause">播放 / 暂停</string>
     <string name="steering_next">下一曲</string>
     <string name="steering_previous">上一曲</string>
@@ -667,17 +662,6 @@
     <string name="steering_log_match_invalid">请填写日志来源和 1 至 4 个有效片段，每个片段不超过 160 字。</string>
     <string name="return_home_icon">CarPlay 返回桌面图标</string>
     <string name="return_home_icon_description">选择一张正方形图片，作为 CarPlay 返回车机桌面的按钮图标。下次连接时生效。</string>
-    <string name="describe_the_problem">请填写故障现象、发生时间和预期结果</string>
-    <string name="upload_report_to_cloud">上传报告到云端</string>
-    <string name="uploading_to_cloud">正在上传到云端…</string>
-    <string name="describe_problem_before_uploading">请先填写故障描述。</string>
-    <string name="problem_description_too_long">故障描述不能超过 2000 个字符。</string>
-    <string name="report_upload_privacy">仅在点击按钮后上传，故障描述会和已脱敏的诊断报告一起发送。</string>
-    <string name="report_uploaded">报告已上传</string>
-    <string name="report_uploaded_message">云端已收到故障描述和诊断报告。</string>
-    <string name="report_upload_failed">报告上传失败</string>
-    <string name="report_upload_failed_message">请检查车机网络后重试。</string>
-    <string name="retry_report_upload">重试</string>
     <string name="report_too_large_message">报告超过 1 MiB，请保存到本机后手动分享。</string>
     <string name="diagnostic_report_saved_in_app">由于公共保存位置不可用，报告已私密保存到 DiPlay。您可以在此分享或查看报告。不会自动发送任何内容。</string>
     <string name="diagnostic_report_saved_to_path">报告已保存到：\n%1$s\n\n您也可以在此分享或查看报告。不会自动发送任何内容。</string>
@@ -778,4 +762,6 @@
     <string name="this_head_unit_has_no_image_picker">此车机没有图片选择器。</string>
     <!-- carlito | GD vehicle probe integration. -->
     <string name="vehicle_probe">车辅属性扫描</string>
+    <string name="steering_local_only">配置仅保存在本机，不会上传。</string>
+    <string name="steering_save_local">保存到本机</string>
 </resources>

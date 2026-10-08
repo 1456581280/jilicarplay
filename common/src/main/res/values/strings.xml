@@ -618,7 +618,7 @@
     <string name="geely_steering_wheel">Steering-button compatibility mode</string>
     <string name="geely_steering_wheel_description">Install Vehicle Data Bridge to use steering wheel buttons for playback and Siri.</string>
     <string name="steering_identification">Identify steering buttons</string>
-    <string name="steering_panel_intro">Choose an action and press its steering button. The result fills in automatically. Save to apply it and upload the configuration to cloud.</string>
+    <string name="steering_panel_intro">Choose an action and press its steering button. The result fills in automatically. Save to apply it on this device. Nothing is uploaded.</string>
     <string name="steering_car_model">Vehicle model</string>
     <string name="steering_car_model_hint">Vehicle model and model year</string>
     <string name="steering_head_unit">Head unit model</string>
@@ -638,7 +638,6 @@
     <string name="steering_restore_defaults">Restore original controls</string>
     <string name="steering_default_restored">Original controls restored. Save again to enable this configuration.</string>
     <string name="steering_filled">%1$s is filled in. Save to apply it.</string>
-    <string name="steering_save_and_upload">Save and upload to cloud</string>
     <string name="steering_export">Export saved configuration</string>
     <string name="steering_exported">Configuration exported</string>
     <string name="steering_export_failed">Could not export. Choose another location and try again.</string>
@@ -650,10 +649,6 @@
     <string name="steering_save_failed">Could not save the configuration. Try again.</string>
     <string name="steering_unassigned">Not identified</string>
     <string name="steering_assigned">Identified</string>
-    <string name="steering_cloud_received">Saved on this head unit. Cloud has received the configuration.</string>
-    <string name="steering_cloud_pending">Saved on this head unit. Waiting for cloud upload; it will retry when internet is available.</string>
-    <string name="steering_cloud_failed">Saved on this head unit. Cloud upload failed; save again to retry.</string>
-    <string name="steering_cloud_after_save">Saving uploads the vehicle model, head unit information and button mappings to cloud.</string>
     <string name="steering_play_pause">Play / pause</string>
     <string name="steering_next">Next track</string>
     <string name="steering_previous">Previous track</string>
@@ -667,17 +662,6 @@
     <string name="steering_log_match_invalid">Enter a log source and 1 to 4 fragments of up to 160 characters each.</string>
     <string name="return_home_icon">CarPlay home icon</string>
     <string name="return_home_icon_description">Choose a square image for CarPlay’s button that returns to the car home screen. The new icon is used on the next connection.</string>
-    <string name="describe_the_problem">Describe the problem, when it happened, and what you expected</string>
-    <string name="upload_report_to_cloud">Upload report to cloud</string>
-    <string name="uploading_to_cloud">Uploading to cloud…</string>
-    <string name="describe_problem_before_uploading">Describe the problem before uploading.</string>
-    <string name="problem_description_too_long">Keep the problem description under 2,000 characters.</string>
-    <string name="report_upload_privacy">Uploads only when you tap the button. The problem description and redacted diagnostic report are sent together.</string>
-    <string name="report_uploaded">Report uploaded</string>
-    <string name="report_uploaded_message">The cloud received your problem description and diagnostic report.</string>
-    <string name="report_upload_failed">Could not upload the report</string>
-    <string name="report_upload_failed_message">Check the head unit’s internet connection and try again.</string>
-    <string name="retry_report_upload">Try again</string>
     <string name="report_too_large_message">This report is larger than 1 MiB. Save it locally and share it manually.</string>
     <string name="diagnostic_report_saved_in_app">Your report was saved privately in DiPlay because a public save location was unavailable. Share it or view it here. Nothing is sent automatically.</string>
     <string name="diagnostic_report_saved_to_path">Your report was saved to:\n%1$s\n\nYou can also share it or view it here. Nothing is sent automatically.</string>
@@ -778,4 +762,6 @@
     <string name="this_head_unit_has_no_image_picker">This head unit has no image picker.</string>
     <!-- carlito | GD vehicle probe integration. -->
     <string name="vehicle_probe">Vehicle property scan</string>
+    <string name="steering_local_only">Profiles are saved only on this device. Nothing is uploaded.</string>
+    <string name="steering_save_local">Save on this device</string>
 </resources>

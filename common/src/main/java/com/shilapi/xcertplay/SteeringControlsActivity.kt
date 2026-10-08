@@ -35,7 +35,7 @@ class SteeringControlsActivity : ComponentActivity() {
     private lateinit var carModel: EditText
     private lateinit var headUnit: EditText
     private lateinit var instruction: TextView
-    private lateinit var cloudState: TextView
+    private lateinit var localState: TextView
     private lateinit var saveButton: Button
     private lateinit var accessButton: Button
     private lateinit var restoreButton: Button
@@ -62,7 +62,7 @@ class SteeringControlsActivity : ComponentActivity() {
     }
     private val refresh = object : Runnable {
         override fun run() {
-            updateCloudState()
+            updateLocalState()
             updateAccess()
             diagnosticText?.text = CarPlayMediaKeys.steeringDiagnostics()
             handler.postDelayed(this, 1_000L)
@@ -83,7 +83,6 @@ class SteeringControlsActivity : ComponentActivity() {
         window.statusBarColor = BG; window.navigationBarColor = BG
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = false
         buildPanel()
-        SteeringProfiles.scheduleUpload(this)
     }
 
     override fun onResume() { super.onResume(); updateAccess(); handler.post(refresh) }
@@ -159,9 +158,9 @@ class SteeringControlsActivity : ComponentActivity() {
             .apply { visibility = View.GONE }
         content.addView(cancelButton, params(8))
 
-        cloudState = label("", 16f, MUTED)
-        content.addView(cloudState, params(16))
-        saveButton = button(getString(R.string.steering_save_and_upload), primary = true) { saveAndUpload() }
+        localState = label("", 16f, MUTED)
+        content.addView(localState, params(16))
+        saveButton = button(getString(R.string.steering_save_local), primary = true) { saveLocally() }
         content.addView(saveButton, params(12))
         content.addView(button(getString(R.string.steering_export)) {
             val profile = SteeringProfiles.load(this)
@@ -198,7 +197,7 @@ class SteeringControlsActivity : ComponentActivity() {
         }
         setContentView(scroll)
         updateBindings()
-        updateCloudState()
+        updateLocalState()
         updateAccess()
         updateRestoreButton()
     }
@@ -248,7 +247,7 @@ class SteeringControlsActivity : ComponentActivity() {
 
     private fun currentDraft() = draft.copy(carModel = carModel.text.toString().trim(), headUnitModel = headUnit.text.toString().trim())
 
-    private fun saveAndUpload() {
+    private fun saveLocally() {
         val profile = currentDraft().copy(savedAt = System.currentTimeMillis())
         if (profile.carModel.isBlank()) { carModel.error = getString(R.string.steering_enter_car_model); carModel.requestFocus(); return }
         if (profile.headUnitModel.isBlank()) { headUnit.error = getString(R.string.steering_enter_head_unit); headUnit.requestFocus(); return }
@@ -259,7 +258,7 @@ class SteeringControlsActivity : ComponentActivity() {
         }.onSuccess {
             draft = profile
             instruction.setText(R.string.steering_applied)
-            updateCloudState()
+            updateLocalState()
             updateRestoreButton()
         }.onFailure {
             android.util.Log.w("DiPlay-SteeringProfiles", "Could not save steering profile", it)
@@ -276,14 +275,9 @@ class SteeringControlsActivity : ComponentActivity() {
         }
     }
 
-    private fun updateCloudState() {
-        if (!::cloudState.isInitialized) return
-        cloudState.setText(when (SteeringProfiles.uploadState(this)) {
-            "uploaded" -> R.string.steering_cloud_received
-            "pending" -> R.string.steering_cloud_pending
-            "failed" -> R.string.steering_cloud_failed
-            else -> R.string.steering_cloud_after_save
-        })
+    private fun updateLocalState() {
+        if (!::localState.isInitialized) return
+        localState.setText(R.string.steering_local_only)
     }
 
     private fun updateAccess() {

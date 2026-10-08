@@ -40,7 +40,6 @@ class VehicleProbeActivity : Activity() {
     private var service: ProbeService? = null
     private var bound = false
     private var lastState: ProbeState? = null
-    private var lastCloudStatus = ""
     private var developerUnlocked = false
     private var diagnosticOpen = false
     private var exporting = false
@@ -48,8 +47,7 @@ class VehicleProbeActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var detail: TextView
     private lateinit var counts: TextView
-    private lateinit var cloudStatus: TextView
-    private lateinit var retryUpload: Button
+    private lateinit var localStatus: TextView
     private lateinit var scan: Button
     private lateinit var export: Button
     private lateinit var progress: ProgressBar
@@ -131,9 +129,9 @@ class VehicleProbeActivity : Activity() {
         detail = label("", 15).apply { setPadding(0, dp(10), 0, dp(18)) }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true }
         counts = label("", 19).apply { setPadding(0, dp(20), 0, dp(8)); setLineSpacing(dp(8).toFloat(), 1f) }
-        // carlito | Cloud receipt belongs beside the scan result, where it stays visible.
-        cloudStatus = label("", 15).apply { setPadding(0, dp(12), 0, 0) }
-        card.addView(status); card.addView(detail); card.addView(progress); card.addView(counts); card.addView(cloudStatus)
+        // Reports remain on the head unit; no cloud transport is bundled.
+        localStatus = label("", 15).apply { setPadding(0, dp(12), 0, 0) }
+        card.addView(status); card.addView(detail); card.addView(progress); card.addView(counts); card.addView(localStatus)
         column.addView(card)
         scan = button("一键扫描并应用属性") { withDownloadsPermission("scan") }
             .apply { setTextColor(Color.WHITE); backgroundTintList = android.content.res.ColorStateList.valueOf(green) }
@@ -144,25 +142,6 @@ class VehicleProbeActivity : Activity() {
         column.addView(button("车型属性配置") { showProfileMenu() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(button("查看车辆数据") { showVehicleValues() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(button("扫描后如何使用属性") { showUsageHelp() }, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
-        retryUpload = button("重新上传报告") {
-            val time = service?.state?.lastScan ?: 0L
-            if (time == 0L) return@button
-            retryUpload.isEnabled = false
-            io.execute {
-                val result = runCatching {
-                    if (VehicleReportDelivery.status(applicationContext, time) == "报告尚未上传云端") {
-                        val report = ProbeReports.open(applicationContext).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                        VehicleReportDelivery.enqueue(applicationContext, time, report)
-                    }
-                    VehicleReportDelivery.retry(applicationContext)
-                }
-                main.post { if (!isDestroyed) {
-                    refresh()
-                    Toast.makeText(this, if (result.isSuccess) "已安排上传，联网后将自动完成" else "暂时无法安排上传，请重试", Toast.LENGTH_LONG).show()
-                } }
-            }
-        }
-        column.addView(retryUpload, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(8) })
         column.addView(label("扫描仅读取车辆状态，不改变车辆设置。", 14).apply { setPadding(0, dp(16), 0, 0) })
         lastState = null
         refresh()
@@ -171,7 +150,7 @@ class VehicleProbeActivity : Activity() {
     // carlito | Scan, verify and apply read-only data in one action.
     private fun showUsageHelp() {
         AlertDialog.Builder(this).setTitle("扫描后如何使用属性").setMessage(
-            "1. 点击“一键扫描并应用属性”，等待扫描、分析和保存完成。报告会自动保存到“下载/DiPlay”并上传云端，断网后会自动重试。Android 9 首次使用请允许存储权限。\n\n" +
+            "1. 点击“一键扫描并应用属性”，等待扫描、分析和保存完成。报告会自动保存到“下载/DiPlay”，不会上传云端。Android 9 首次使用请允许存储权限。\n\n" +
             "2. 页面会显示已应用项目数。点击“查看车辆数据”，检查车速、电量、温度、灯光等读数。暂不可用的项目会保留已有配置，不会用零值代替。\n\n" +
             "3. 返回“投屏编辑器”，添加需要的车辆数据项目并保存布局。导航可以单独使用。\n\n" +
             "已有配置的单位和校准会保留。新提取的属性如果只有原始值，可在“车型属性配置”核对单位和校准；程序不会猜测单位。\n\n" +
@@ -212,14 +191,10 @@ class VehicleProbeActivity : Activity() {
     private fun refresh() {
         if (diagnosticOpen || !::status.isInitialized) return
         val state = service?.state ?: ProbeState()
-        val delivery = if (state.lastScan > 0 && !state.running) VehicleReportDelivery.status(applicationContext, state.lastScan) else ""
-        cloudStatus.text = delivery
-        cloudStatus.visibility = if (delivery.isEmpty()) View.GONE else View.VISIBLE
-        retryUpload.visibility = if (delivery.isNotEmpty() && delivery != "报告已上传云端") View.VISIBLE else View.GONE
-        retryUpload.isEnabled = !state.running
+        localStatus.text = "报告仅保存在本机，不会上传"
+
         export.isEnabled = state.lastScan > 0 && !exporting
-        if (state == lastState && delivery == lastCloudStatus) return
-        lastCloudStatus = delivery
+        if (state == lastState) return
         lastState = state
         scan.isEnabled = !state.loading && !state.running
         scan.text = if (state.running) "正在处理…" else "一键扫描并应用属性"

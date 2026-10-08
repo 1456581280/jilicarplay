@@ -43,8 +43,6 @@
         <activity android:name="com.shilapi.xcertplay.SteeringControlsActivity"
             android:exported="false" android:theme="@style/Theme.Xcertplay"
             android:windowSoftInputMode="adjustResize" />
-        <service android:name="com.shilapi.xcertplay.SteeringProfileUploadService"
-            android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <provider
             android:name="com.shilapi.xcertplay.DiagnosticReportProvider"
             android:authorities="${applicationId}.diagnostic-reports"

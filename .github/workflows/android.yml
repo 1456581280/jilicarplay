@@ -12,6 +12,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Reject private-server upload regressions
+        run: python3 scripts/check_no_upload.py
       - name: Reject credential files in public source
         run: python3 scripts/check_public_tree.py
       - uses: actions/setup-java@v4
@@ -24,6 +26,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests, lint and source-only debug build
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :home:testDebugUnitTest :mobile:lintDebug :home:lintDebug :maphost:lintDebug :mobile:assembleDebug :home:assembleDebug :maphost:assembleDebug --stacktrace
+      - name: Check compiled APK for removed upload code
+        run: python3 scripts/check_no_upload.py mobile/build/outputs/apk/debug/mobile-debug.apk
       - name: Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -121,6 +125,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           DIPLAY_AUTH_ASSETS_DIR: ${{ runner.temp }}/diplay-auth-assets
         run: ./gradlew :mobile:assembleRelease --stacktrace
+      - name: Check signed APK for removed upload code
+        if: steps.signing.outputs.available == 'true'
+        run: python3 scripts/check_no_upload.py mobile/build/outputs/apk/release/mobile-release.apk
       - name: Upload signed release APK
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4

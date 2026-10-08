@@ -1,8 +1,5 @@
 package com.shilapi.xcertplay
 
-import android.app.job.JobInfo
-import android.app.job.JobScheduler
-import android.content.ComponentName
 import android.content.Context
 import android.os.Build
 import android.util.AtomicFile
@@ -10,10 +7,6 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
 import java.text.Normalizer
 
 internal data class SteeringBinding(
@@ -126,16 +119,13 @@ internal data class SteeringProfile(
     }
 }
 
-/** Local profiles and a durable outbox. Network work belongs to [SteeringProfileUploadService]. */
+/** Local-only steering profiles. Saving never schedules network delivery. */
 internal object SteeringProfiles {
     private const val TAG = "DiPlay-SteeringProfiles"
-    private const val JOB_ID = 0x535750
     const val MAX_BYTES = 32 * 1024
-    const val UPLOAD_URL = "https://carlito.i234.me:5214/diplay-profiles/v1/profiles"
 
     private fun prefs(context: Context) = context.getSharedPreferences("steering_profiles", Context.MODE_PRIVATE)
     private fun directory(context: Context) = File(context.filesDir, "steering-profiles").apply { mkdirs() }
-    fun outbox(context: Context) = File(directory(context), "outbox").apply { mkdirs() }
 
     @Synchronized fun load(context: Context): SteeringProfile? = runCatching {
         val name = prefs(context).getString("active", null) ?: return@runCatching null
@@ -152,80 +142,12 @@ internal object SteeringProfiles {
         val bytes = profile.json().toString(2).toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAX_BYTES)
         write(File(directory(context), profile.fileName), bytes)
-        val receipt = digest(bytes)
-        write(File(outbox(context), "$receipt.json"), bytes)
         check(prefs(context).edit().putString("active", profile.fileName)
-            .putBoolean("enabled", true).putString("receipt", receipt).putString("upload_state", "pending").commit())
-        scheduleUpload(context)
+            .putBoolean("enabled", true).remove("receipt").remove("upload_state").commit())
     }
 
-    @Synchronized fun uploadState(context: Context): String = prefs(context).getString("upload_state", "none")!!
     @Synchronized fun developerUnlocked(context: Context): Boolean = prefs(context).getBoolean("developer", false)
     @Synchronized fun unlockDeveloper(context: Context) { prefs(context).edit().putBoolean("developer", true).apply() }
-
-    fun scheduleUpload(context: Context) {
-        if (outbox(context).listFiles()?.none { it.extension == "json" } != false) return
-        val job = JobInfo.Builder(JOB_ID, ComponentName(context, SteeringProfileUploadService::class.java))
-            .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).setPersisted(true)
-            .setBackoffCriteria(30_000L, JobInfo.BACKOFF_POLICY_EXPONENTIAL).build()
-        if (context.getSystemService(JobScheduler::class.java)?.schedule(job) != JobScheduler.RESULT_SUCCESS) {
-            Log.w(TAG, "Steering profile upload remains pending")
-        }
-    }
-
-    @Synchronized fun noteUpload(context: Context, receipt: String, state: String) {
-        if (prefs(context).getString("receipt", null) == receipt) {
-            prefs(context).edit().putString("upload_state", state).apply()
-        }
-    }
-
-    /** Returns false for a permanent refusal; a network failure throws so the outbox is retried. */
-    fun upload(context: Context, file: File, onConnection: (HttpURLConnection) -> Unit): Boolean {
-        val bytes = file.readBytes()
-        require(bytes.size in 1..MAX_BYTES)
-        SteeringProfile.fromJson(JSONObject(bytes.toString(Charsets.UTF_8)))
-        val receipt = file.nameWithoutExtension
-        val connection = URL(UPLOAD_URL).openConnection() as HttpURLConnection
-        onConnection(connection)
-        try {
-            connection.requestMethod = "POST"
-            connection.instanceFollowRedirects = false
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 15_000
-            connection.doOutput = true
-            connection.setFixedLengthStreamingMode(bytes.size)
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.setRequestProperty("Accept", "application/json")
-            connection.outputStream.use { it.write(bytes) }
-            val status = connection.responseCode
-            if (status in listOf(400, 413, 422)) {
-                noteUpload(context, receipt, "failed")
-                return false
-            }
-            check(status in 200..299) { "Profile upload HTTP $status" }
-            val body = connection.inputStream.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    require(output.size() + count <= MAX_BYTES)
-                    output.write(buffer, 0, count)
-                }
-                output.toByteArray()
-            }
-            val response = JSONObject(body.toString(Charsets.UTF_8))
-            check(response.optBoolean("ok") && response.optString("receipt") == digest(bytes))
-            check(file.delete()) { "Could not acknowledge uploaded profile" }
-            noteUpload(context, receipt, "uploaded")
-            return true
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
-        .digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun write(file: File, bytes: ByteArray) {
         val atomic = AtomicFile(file)

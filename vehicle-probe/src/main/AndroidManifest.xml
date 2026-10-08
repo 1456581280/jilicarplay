@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- carlito | DiPlay vehicle probe integration. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="com.geely.desktop.permission.VEHICLE_PROPERTIES" />
@@ -18,9 +16,5 @@
         <service android:name="com.shilapi.xcertplay.vehicleprobe.ProbeService"
             android:exported="false" android:process=":vehicle_probe"
             android:foregroundServiceType="dataSync" />
-        <!-- carlito | Retry queued vehicle reports when internet becomes available. -->
-        <service android:name="com.shilapi.xcertplay.vehicleprobe.VehicleReportUploadService"
-            android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"
-            android:process=":vehicle_probe" />
     </application>
 </manifest>

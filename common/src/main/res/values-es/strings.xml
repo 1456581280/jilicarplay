@@ -555,17 +555,6 @@
     <string name="location_reporting_reconnects">Cambiar este ajuste vuelve a conectar la sesión activa de CarPlay.</string>
     <string name="return_home_icon">Icono de regreso a la pantalla del coche</string>
     <string name="return_home_icon_description">Elige una imagen cuadrada para el botón de CarPlay que vuelve a la pantalla del coche. Se usará en la próxima conexión.</string>
-    <string name="describe_the_problem">Describe el problema, cuándo ocurrió y qué esperabas</string>
-    <string name="upload_report_to_cloud">Subir informe a la nube</string>
-    <string name="uploading_to_cloud">Subiendo a la nube…</string>
-    <string name="describe_problem_before_uploading">Describe el problema antes de subirlo.</string>
-    <string name="problem_description_too_long">La descripción no puede superar los 2000 caracteres.</string>
-    <string name="report_upload_privacy">Solo se sube al pulsar el botón. La descripción y el informe de diagnóstico depurado se envían juntos.</string>
-    <string name="report_uploaded">Informe subido</string>
-    <string name="report_uploaded_message">La nube recibió la descripción y el informe de diagnóstico.</string>
-    <string name="report_upload_failed">No se pudo subir el informe</string>
-    <string name="report_upload_failed_message">Comprueba la conexión a Internet de la pantalla y vuelve a intentarlo.</string>
-    <string name="retry_report_upload">Volver a intentar</string>
     <string name="report_too_large_message">El informe supera 1 MiB. Guárdalo localmente y compártelo manualmente.</string>
     <string name="diagnostic_report_saved_in_app">El informe se guardó de forma privada en DiPlay porque no había una ubicación pública disponible. Compártelo o míralo aquí. No se envía nada automáticamente.</string>
     <string name="diagnostic_report_saved_to_path">El informe se guardó en:\n%1$s\n\nTambién puedes compartirlo o verlo aquí. No se envía nada automáticamente.</string>
