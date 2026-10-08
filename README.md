@@ -1,5 +1,7 @@
 # JiliCarPlay：本地数据版本
 
+当前正式版：**0.2.15**，包含自适应首页及 [GitHub 更新功能](docs/GITHUB-UPDATES.md)。安装包见 [Releases](https://github.com/1456581280/jilicarplay/releases)。
+
 基于 carlito12345/DiPlay，移除车辆扫描报告、方向盘配置和诊断报告的私人服务器上传功能。扫描、属性应用、方向盘映射、本地诊断导出和用户主动分享保留。
 
 - 不包含报告上传端点、上传队列或后台上传服务。

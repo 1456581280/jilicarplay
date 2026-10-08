@@ -157,7 +157,7 @@ jobs:
             const fs = require('fs');
             const version = process.env.APP_VERSION;
             const tag = `v${version}`;
-            const assetName = `DiPlay-${version}.apk`;
+            const assetName = `JiliCarPlay-${version}.apk`;
             const releaseNotes = fs.readFileSync(`docs/UPDATE-NOTES-${version}.md`, 'utf8').trim();
             if (!releaseNotes) throw new Error(`Release notes for ${version} are empty`);
             const apkDir = 'mobile/build/outputs/apk/release';
@@ -176,22 +176,12 @@ jobs:
                 repo,
                 tag_name: tag,
                 target_commitish: context.sha,
-                name: `DiPlay ${tag}`,
+                name: `JiliCarPlay ${tag}`,
                 body: releaseNotes,
-                draft: false,
+                draft: true,
                 prerelease: false,
-                make_latest: 'true',
               }));
             }
-            await github.rest.repos.updateRelease({
-              owner,
-              repo,
-              release_id: release.id,
-              body: releaseNotes,
-              draft: false,
-              prerelease: false,
-              make_latest: 'true',
-            });
             for (const asset of release.assets) {
               if (asset.name === assetName) {
                 await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: asset.id });
@@ -207,6 +197,15 @@ jobs:
                 'content-type': 'application/vnd.android.package-archive',
                 'content-length': fs.statSync(apkPath).size,
               },
+            });
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              body: releaseNotes,
+              draft: false,
+              prerelease: false,
+              make_latest: 'true',
             });
             core.notice(`Published ${assetName} to ${tag}`);
       - name: Remove temporary signing key

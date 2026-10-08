@@ -32,7 +32,12 @@
             <category android:name="android.intent.category.HOME" />
         </intent>
     </queries>
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application>
+        <provider android:name="com.shilapi.xcertplay.UpdatePackageProvider"
+            android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_package_paths" />
+        </provider>
         <!-- carlito | Generic instrument map viewport settings. -->
         <activity android:name="com.shilapi.xcertplay.VehicleMapProjectionActivity" android:exported="false"
             android:resizeableActivity="true" android:theme="@style/Theme.Xcertplay" />

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="journey_eyebrow">YOUR JOURNEY, A LITTLE EASIER.</string>
+    <string name="journey_title">A warmer way to drive.</string>
+    <string name="journey_subtitle">Navigation, music and conversations.\nConnect your phone to your car screen.</string>
+    <string name="journey_wireless">Wireless connection</string>
+    <string name="journey_choose_device">Choose device</string>
+    <string name="journey_usb_hint">Connect your phone to the car with a USB data cable.</string>
+    <string name="journey_settings_hint">Make your connection feel right for your car.</string>
+    <string name="journey_release">Official release · %1$s · Check updates</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking GitHub for an official release…</string>
+    <string name="update_unavailable">Unable to check for updates. The repository must be public and your connection must reach GitHub.</string>
+    <string name="update_current">You have the latest available official release.</string>
+    <string name="update_available">New version %1$s</string>
+    <string name="update_prompt">A new official release is available from 1456581280/jilicarplay. Download it now? Installation requires your confirmation.</string>
+    <string name="update_later">Later</string>
+    <string name="update_download">Download update</string>
+    <string name="update_downloading">Downloading update…</string>
+    <string name="update_failed">Update failed. Check your connection, APK version and signing certificate, then try again.</string>
+    <string name="update_ready">Update ready</string>
+    <string name="update_install_message">The download, package and signature have been checked. Android will ask you to confirm installation.</string>
+    <string name="update_install">Install update</string>
+    <string name="journey_connect">Connect now</string>
+</resources>
