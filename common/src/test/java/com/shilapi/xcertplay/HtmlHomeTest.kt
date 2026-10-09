@@ -28,7 +28,7 @@ class HtmlHomeTest {
         assertNull(HtmlHome.read(activity))
         HtmlHome.save(activity, "<h1>你好</h1>")
         assertEquals("<h1>你好</h1>", HtmlHome.read(activity))
-        assertTrue(runCatching { HtmlHome.save(activity, "中".repeat(HtmlHome.LIMIT / 2)) }.isFailure)
+        assertTrue(runCatching { HtmlHome.save(activity, "<p>" + "中".repeat(HtmlHome.LIMIT / 3) + "</p>") }.isFailure)
         assertEquals("<h1>你好</h1>", HtmlHome.read(activity))
         val unrelated = File(activity.filesDir, "keep.txt").apply { writeText("keep") }
         HtmlHome.reset(activity)
@@ -57,13 +57,13 @@ class HtmlHomeTest {
         assertTrue(calls.isEmpty())
         view.dispose()
     }
-    @Test fun incompleteAndOversizePastesDoNotReplaceSavedHome() {
+    @Test fun incompletePastesDoNotReplaceSavedHome() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         HtmlHome.save(activity, "<h1>原首页</h1>")
         HtmlHome.edit(activity) {}
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val source = "<html><head><style>" + "中".repeat(HtmlHome.LIMIT)
+        val source = "<html><head><style>" + "    /* 格式化代码 */\n".repeat(20000)
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("html", source))
         descendants(dialog.window!!.decorView).filterIsInstance<Button>().single { it.text == "粘贴 HTML" }.performClick()
         val editor = descendants(dialog.window!!.decorView).filterIsInstance<EditText>().single()
@@ -90,6 +90,33 @@ class HtmlHomeTest {
         val exactLimit = "<p>" + "a".repeat(HtmlHome.LIMIT - 7) + "</p>"
         assertEquals(exactLimit, HtmlHome.prepare(exactLimit))
         assertTrue(runCatching { HtmlHome.prepare(exactLimit + "中") }.isFailure)
+    }
+    @Test fun largeFormattedPastePreviewSaveAndReopenPreserveAllWhitespace() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val source = "\n  <html>\n    <head><style>\n" +
+            "        /* 中文注释：保留换行和缩进 */\r\n".repeat(12000) +
+            "    </style></head>\n    <body><pre>  第一行\n    第二行  </pre>" +
+            "<script>const text = `  第一行\n    第二行  `;</script></body>\n  </html>\n\n"
+        assertTrue(source.toByteArray(Charsets.UTF_8).size > 262144)
+        assertEquals(source, HtmlHome.prepare("```html\n$source\n```"))
+        HtmlHome.edit(activity) {}
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("html", source))
+        descendants(dialog.window!!.decorView).filterIsInstance<Button>().single { it.text == "粘贴 HTML" }.performClick()
+        val editor = descendants(dialog.window!!.decorView).filterIsInstance<EditText>().single()
+        assertEquals(source, editor.text.toString())
+        descendants(dialog.window!!.decorView).filterIsInstance<Button>().single { it.text.startsWith("预览") }.performClick()
+        val preview = ShadowAlertDialog.getLatestAlertDialog()
+        assertNotSame(dialog, preview)
+        preview.dismiss()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        assertEquals(source, HtmlHome.read(activity))
+        HtmlHome.edit(activity) {}
+        val reopened = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(source, descendants(reopened.window!!.decorView).filterIsInstance<EditText>().single().text.toString())
+        reopened.dismiss()
+        HtmlHome.reset(activity)
     }
     @Test fun backFromCustomHomeOpensSettingsForRecovery() {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java)

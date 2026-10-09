@@ -17,7 +17,8 @@ import org.json.JSONObject
 
 /** Local HTML has no JavaScript-to-Java bridge and cannot fetch network or private files. */
 internal object HtmlHome {
-    const val LIMIT = 262144
+    // Keep formatted source intact; indentation and literals can carry meaning.
+    const val LIMIT = 4 * 1024 * 1024
     val actions = setOf("connect", "usb", "choose-device", "disconnect", "settings", "check-update", "source", "edit-home", "default-home")
     private fun file(context: Context) = AtomicFile(File(context.filesDir, "custom-home.html"))
     fun read(context: Context): String? = runCatching { file(context).readFully().takeIf { it.size <= LIMIT }?.toString(Charsets.UTF_8)?.takeIf { it.isNotBlank() } }.getOrNull()
@@ -31,9 +32,10 @@ internal object HtmlHome {
     /** Accept a single fenced AI response, but never silently save truncated source. */
     fun prepare(source: String): String {
         val trimmed = source.trim().removePrefix("\uFEFF").trim()
-        val fenced = Regex("\\A```(?:html)?\\s*\\r?\\n([\\s\\S]*?)\\r?\\n```\\z", RegexOption.IGNORE_CASE)
-        val html = fenced.matchEntire(trimmed)?.groupValues?.get(1) ?: trimmed
-        require(html.isNotBlank() && html.toByteArray(Charsets.UTF_8).size <= LIMIT) { "HTML 必须非空且不超过 256 KB；请精简代码后重试" }
+        val fenced = Regex("\\A```(?:html)?[ \\t]*\\r?\\n([\\s\\S]*?)\\r?\\n```\\z", RegexOption.IGNORE_CASE)
+        val html = fenced.matchEntire(trimmed)?.groupValues?.get(1) ?: source.removePrefix("\uFEFF")
+        require(html.isNotBlank()) { "请粘贴完整 HTML" }
+        require(html.toByteArray(Charsets.UTF_8).size <= LIMIT) { "HTML 超过 4 MiB（UTF-8）；请减少内嵌图片等大资源，代码可保留换行和缩进" }
         require(Regex("<[a-z][\\w:-]*(?:\\s|/?>)", RegexOption.IGNORE_CASE).containsMatchIn(html)) { "未找到 HTML 标签，请粘贴完整 HTML" }
         if (Regex("<!doctype\\s+html|<html\\b|<head\\b", RegexOption.IGNORE_CASE).containsMatchIn(html)) {
             require(Regex("<body\\b", RegexOption.IGNORE_CASE).containsMatchIn(html) &&
@@ -66,7 +68,7 @@ internal object HtmlHome {
         <a href="diplay://action/edit-home">编辑首页</a>
         <a href="diplay://action/default-home">恢复默认首页</a>
         监听 window 的 diplay-state 事件，event.detail 含 connected、connecting、status、version；也可读取 window.DiPlayState。使用 textContent 显示状态。不含车辆数据和设备标识。
-        按钮触控高度至少 48px；窄屏堆叠、允许纵向滚动；HTML UTF-8 总大小不超过 256 KB。
+        按钮触控高度至少 48px；窄屏堆叠、允许纵向滚动；HTML UTF-8 总大小不超过 4 MiB。保留正常换行和缩进，无需压缩代码。
     """.trimIndent()
 
     fun edit(activity: Activity, applied: () -> Unit) {
@@ -81,7 +83,7 @@ internal object HtmlHome {
             setText(read(activity) ?: sample(activity))
             setSelection(0)
         }
-        layout.addView(TextView(activity).apply { text = "粘贴完整 HTML（最多 256 KB），仅保存在本机。外部图片、网络和文件访问不可用。" })
+        layout.addView(TextView(activity).apply { text = "粘贴完整 HTML（最多 4 MiB，支持换行和缩进），仅保存在本机。外部图片、网络和文件访问不可用。" })
         val tools = LinearLayout(activity)
         layout.addView(tools)
         fun button(parent: LinearLayout, title: String, click: () -> Unit) {

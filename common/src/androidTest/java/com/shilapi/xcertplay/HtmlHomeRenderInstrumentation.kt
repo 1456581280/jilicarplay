@@ -38,11 +38,17 @@ class HtmlHomeRenderInstrumentation : Instrumentation() {
             lateinit var home: HtmlHomeView
             onMain {
                 // A complete document, inline style and script, SVG and multibyte source.
+                val formattedPadding = "        /* 格式化代码保留缩进 */\n".repeat(12000)
                 val html = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+                    <style>
+                    $formattedPadding
+                    </style>
                     <style>body{background:#123456;color:white}h1{font-size:32px}</style></head>
                     <body><h1 id="heading">自定义首页</h1><svg width="30" height="30"><circle cx="15" cy="15" r="12" fill="orange"/></svg>
                     <a href="diplay://action/settings">设置</a><script>document.title='inline-script-ok';</script></body></html>""".trimIndent()
                 HtmlHome.save(host, html)
+                check(html.toByteArray(Charsets.UTF_8).size > 262144)
+                check(HtmlHome.read(host) == html) { "Formatted source was changed or truncated" }
                 home = HtmlHomeView(host, HtmlHome.read(host)!!) {}
                 host.setContentView(home)
             }
@@ -145,7 +151,7 @@ class HtmlHomeRenderInstrumentation : Instrumentation() {
                 check(loaded) { "Lanzou download page did not load inside the app" }
                 onMain { updates.close() }
             }
-            finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "PASS: saved HTML renders with inline CSS and JavaScript and no top toolbar.\n$rendered\n" +
+            finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "PASS: formatted HTML larger than 256 KB saves unchanged and renders with inline CSS and JavaScript and no top toolbar.\n$rendered\n" +
                 (live?.let { "PASS: live Lanzou folder found ${it.first.version}; Feishu log rendered natively; each reopening checks again; download page loaded inside the app.\n" } ?: "")) })
         } catch (error: Throwable) {
             finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", "FAIL: ${error.stackTraceToString()}\n") })
