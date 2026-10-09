@@ -215,6 +215,7 @@ class DiPlayActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (page != "home") { page = "home"; render() }
+                else if (htmlHome != null) { page = "settings"; render() }
                 else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
             }
         })
@@ -246,7 +247,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyStatusBarPreference()
+        if (hasFocus) { applyStatusBarPreference(); releaseUpdates.onWindowFocusChanged() }
     }
     private fun openOverlayPermission() {
         val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
@@ -277,7 +278,7 @@ class DiPlayActivity : ComponentActivity() {
             return
         }
         handler.removeCallbacks(tick); handler.post(tick)
-        releaseUpdates.onResume(allowPrompt = !CarPlayBackgroundSession.hasSession())
+        releaseUpdates.onResume()
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch && !adbSwitchChangePending && !pausedForAdbSwitchChange &&
             (page == "home" || page == "settings" || page == "connection")) render()
@@ -292,6 +293,7 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
     override fun onPause() {
+        releaseUpdates.onPause()
         WheelKeyService.cancelLearning()
         pausedForAdbSwitchChange = adbSwitchChangePending
         handler.removeCallbacks(tick)
@@ -339,10 +341,15 @@ class DiPlayActivity : ComponentActivity() {
         htmlHome?.dispose(); htmlHome = null
         if (page == "home") {
             HtmlHome.read(this)?.let { html ->
-                val custom = HtmlHomeView(this, html, ::htmlAction)
-                htmlHome = custom; rootScroll = null; pendingScrollY = null
-                renderedPage = page; setContentView(custom); refreshStatus()
-                return
+                runCatching { HtmlHome.prepare(html) }.onSuccess { prepared ->
+                    val custom = HtmlHomeView(this, prepared, ::htmlAction)
+                    htmlHome = custom; rootScroll = null; pendingScrollY = null
+                    renderedPage = page; setContentView(custom); refreshStatus()
+                    return
+                }.onFailure {
+                    Toast.makeText(this, it.message, Toast.LENGTH_LONG).show()
+                    page = "settings"
+                }
             }
         }
         val compact = isCompactLayout

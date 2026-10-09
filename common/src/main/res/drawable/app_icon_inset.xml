@@ -1,0 +1,4 @@
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/app_icon"
+    android:insetLeft="8%" android:insetTop="8%"
+    android:insetRight="8%" android:insetBottom="8%" />

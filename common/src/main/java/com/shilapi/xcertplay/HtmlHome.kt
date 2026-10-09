@@ -22,13 +22,33 @@ internal object HtmlHome {
     private fun file(context: Context) = AtomicFile(File(context.filesDir, "custom-home.html"))
     fun read(context: Context): String? = runCatching { file(context).readFully().takeIf { it.size <= LIMIT }?.toString(Charsets.UTF_8)?.takeIf { it.isNotBlank() } }.getOrNull()
     fun save(context: Context, html: String) {
-        val bytes = html.toByteArray(Charsets.UTF_8)
-        require(html.isNotBlank() && bytes.size <= LIMIT) { "HTML 必须非空且不超过 256 KB" }
+        val bytes = prepare(html).toByteArray(Charsets.UTF_8)
         val target = file(context)
         val stream = target.startWrite()
         try { stream.write(bytes); target.finishWrite(stream) } catch (error: Exception) { target.failWrite(stream); throw error }
     }
     fun reset(context: Context) = file(context).delete()
+    /** Accept a single fenced AI response, but never silently save truncated source. */
+    fun prepare(source: String): String {
+        val trimmed = source.trim().removePrefix("\uFEFF").trim()
+        val fenced = Regex("\\A```(?:html)?\\s*\\r?\\n([\\s\\S]*?)\\r?\\n```\\z", RegexOption.IGNORE_CASE)
+        val html = fenced.matchEntire(trimmed)?.groupValues?.get(1) ?: trimmed
+        require(html.isNotBlank() && html.toByteArray(Charsets.UTF_8).size <= LIMIT) { "HTML 必须非空且不超过 256 KB；请精简代码后重试" }
+        require(Regex("<[a-z][\\w:-]*(?:\\s|/?>)", RegexOption.IGNORE_CASE).containsMatchIn(html)) { "未找到 HTML 标签，请粘贴完整 HTML" }
+        if (Regex("<!doctype\\s+html|<html\\b|<head\\b", RegexOption.IGNORE_CASE).containsMatchIn(html)) {
+            require(Regex("<body\\b", RegexOption.IGNORE_CASE).containsMatchIn(html) &&
+                html.contains("</body>", ignoreCase = true) && html.contains("</html>", ignoreCase = true)) {
+                "HTML 不完整，请确认已复制到 </body> 和 </html>，再预览或保存"
+            }
+        }
+        for (tag in listOf("style", "script", "title", "textarea")) {
+            require(!Regex("<$tag\\b", RegexOption.IGNORE_CASE).containsMatchIn(html) ||
+                html.lastIndexOf("</$tag>", ignoreCase = true) > html.lastIndexOf("<$tag", ignoreCase = true)) {
+                "HTML 不完整：缺少 </$tag>，请重新复制完整代码"
+            }
+        }
+        return html
+    }
     fun action(url: Uri, mainFrame: Boolean, gesture: Boolean): String? =
         if (mainFrame && gesture && url.scheme == "diplay" && url.host == "action" && url.query == null && url.fragment == null && url.port == -1 && url.userInfo == null)
             url.path?.removePrefix("/")?.takeIf { it in actions } else null
@@ -50,31 +70,49 @@ internal object HtmlHome {
     """.trimIndent()
 
     fun edit(activity: Activity, applied: () -> Unit) {
-        val layout = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12) }
+        fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
+        val layout = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
         val editor = EditText(activity).apply {
             hint = "在这里粘贴完整 HTML / Paste HTML here"
             typeface = android.graphics.Typeface.MONOSPACE; textSize = 14f
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            minLines = 10; maxLines = 16; gravity = android.view.Gravity.TOP
+            gravity = android.view.Gravity.TOP
+            isVerticalScrollBarEnabled = true
             setText(read(activity) ?: sample(activity))
-            filters = arrayOf(android.text.InputFilter.LengthFilter(LIMIT))
+            setSelection(0)
         }
-        layout.addView(TextView(activity).apply { text = "自定义首页仅保存在本机。可将示例和接口说明交给 AI 生成页面。外部图片、网络和文件访问不可用。" })
-        fun button(title: String, click: () -> Unit) { layout.addView(Button(activity).apply { text = title; setOnClickListener { click() } }) }
+        layout.addView(TextView(activity).apply { text = "粘贴完整 HTML（最多 256 KB），仅保存在本机。外部图片、网络和文件访问不可用。" })
+        val tools = LinearLayout(activity)
+        layout.addView(tools)
+        fun button(parent: LinearLayout, title: String, click: () -> Unit) {
+            val control = Button(activity).apply { text = title; minHeight = dp(48); setOnClickListener { click() } }
+            if (parent === tools) parent.addView(control, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            else parent.addView(control)
+        }
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        button("复制 AI 提示词和功能入口") { clipboard.setPrimaryClip(ClipData.newPlainText("HTML home guide", guide)) }
-        button("复制完整示例 HTML") { clipboard.setPrimaryClip(ClipData.newPlainText("HTML home example", sample(activity))) }
-        button("粘贴 HTML") { clipboard.primaryClip?.getItemAt(0)?.coerceToText(activity)?.let { editor.setText(it.take(LIMIT)) } }
-        layout.addView(editor)
-        button("预览（功能入口仅提示，不执行）") {
-            val preview = HtmlHomeView(activity, editor.text.toString()) { Toast.makeText(activity, "功能入口：$it", Toast.LENGTH_SHORT).show() }
+        button(tools, "粘贴 HTML") {
+            val clip = clipboard.primaryClip
+            val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(activity)
+            if (text.isNullOrBlank()) Toast.makeText(activity, "剪贴板没有 HTML 内容", Toast.LENGTH_SHORT).show()
+            else { editor.setText(text); editor.setSelection(0); editor.scrollTo(0, 0) }
+        }
+        button(tools, "复制示例") { clipboard.setPrimaryClip(ClipData.newPlainText("HTML home example", sample(activity))) }
+        button(tools, "复制 AI 提示词") { clipboard.setPrimaryClip(ClipData.newPlainText("HTML home guide", guide)) }
+        // The editor owns its scrolling; keep the tools and dialog actions outside it.
+        layout.addView(editor, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        button(layout, "预览（功能入口仅提示，不执行）") {
+            val html = runCatching { prepare(editor.text.toString()) }.getOrElse {
+                Toast.makeText(activity, it.message, Toast.LENGTH_LONG).show(); return@button
+            }
+            val preview = HtmlHomeView(activity, html) { Toast.makeText(activity, "功能入口：$it", Toast.LENGTH_SHORT).show() }
             val dialog = AlertDialog.Builder(activity).setTitle("首页预览").setView(preview).setPositiveButton("关闭", null).create()
             dialog.setOnDismissListener { preview.dispose() }; dialog.show()
             dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
-        val dialog = AlertDialog.Builder(activity).setTitle("自定义 HTML 首页").setView(ScrollView(activity).apply { addView(layout) })
+        val dialog = AlertDialog.Builder(activity).setTitle("自定义 HTML 首页").setView(layout)
             .setPositiveButton("保存并应用", null).setNegativeButton("取消", null).setNeutralButton("恢复默认", null).create()
         dialog.show(); dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         run {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 runCatching { save(activity, editor.text.toString()) }.onSuccess { dialog.dismiss(); applied() }
@@ -93,11 +131,7 @@ internal class HtmlHomeView(context: Context, html: String, private val onAction
     private var lastState = ""
     init {
         orientation = VERTICAL; setBackgroundColor(Color.rgb(15, 24, 40))
-        val toolbar = LinearLayout(context)
-        listOf("编辑首页" to "edit-home", "默认首页" to "default-home", "设置" to "settings").forEach { (label, action) ->
-            toolbar.addView(Button(context).apply { text = label; minHeight = (48 * resources.displayMetrics.density).toInt(); setOnClickListener { onAction(action) } }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        }
-        addView(toolbar); addView(web, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(web, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         web.setBackgroundColor(Color.rgb(15, 24, 40))
         web.settings.apply {
             javaScriptEnabled = true; allowFileAccess = false; allowContentAccess = false

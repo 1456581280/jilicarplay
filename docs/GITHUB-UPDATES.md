@@ -1,5 +1,7 @@
 # GitHub 正式版更新
 
+本页记录 0.2.15 的旧实现。0.2.16 起改用 [蓝奏云更新和飞书日志](APP-UPDATES.md)，不再使用 GitHub Release 检测更新。
+
 更新源固定为 https://github.com/1456581280/jilicarplay 。所有者将仓库公开后，应用无需令牌即可读取正式 Release。不要把 GitHub 私人访问令牌打进 APK。
 
 ## 后续发布步骤

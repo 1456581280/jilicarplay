@@ -63,6 +63,9 @@ class HomeCompactLayoutTest {
             button.performClick()
         }
         assertEquals(setOf("connect", "choose", "disconnect", "usb", "settings"), calls.toSet())
+        val labels = descendants(scroll).filterIsInstance<android.widget.TextView>().map { it.text.toString() }.toList()
+        assertTrue(labels.contains("检查更新"))
+        assertTrue(labels.none { it.contains("GitHub") || it.contains("0.2.15") })
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         scroll.draw(Canvas(bitmap))
         val output = File("build/outputs/home-preview/$name.png").apply { parentFile!!.mkdirs() }

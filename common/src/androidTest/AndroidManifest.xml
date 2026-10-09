@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name="com.shilapi.xcertplay.HtmlHomeRenderActivity"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:exported="false" />
+    </application>
+</manifest>

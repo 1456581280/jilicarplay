@@ -114,13 +114,10 @@ internal class WarmHomeScreen(private val context: Context) {
             add(label(context.getString(R.string.journey_usb_hint), 24).apply { setPadding(unit(28), 0, unit(18), 0) }, 22)
             add(action(context.getString(R.string.settings), R.drawable.home_settings, click = onSettings), 34)
             add(label(context.getString(R.string.journey_settings_hint), 23).apply { setPadding(unit(28), 0, unit(18), 0) }, 22)
-            add(label(context.getString(R.string.journey_release, version), 18).apply {
+            add(label(context.getString(R.string.update_check), 18).apply {
                 minHeight = dp(48f); gravity = Gravity.CENTER_VERTICAL; setOnClickListener { onUpdate() }
                 contentDescription = context.getString(R.string.update_check)
             }, 18)
-            add(label("GitHub · 1456581280/jilicarplay", 17, peach).apply {
-                minHeight = dp(48f); gravity = Gravity.CENTER_VERTICAL; setOnClickListener { onGitHub() }
-            })
         }
         if (twoColumns) content.add(columns(wirelessCard, right), 30)
         else { content.add(wirelessCard, 26); content.add(right, 20) }
